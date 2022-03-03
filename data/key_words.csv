@@ -1,0 +1,15 @@
+﻿word,pair,type
+add,add/subtract,add
+subtract,add/subtract,subtract
+addition,addition/subtraction,add
+subtraction,addition/subtraction,subtract
+plus,plus/minus,add
+minus,plus/minus,subtract
+more,more/less,add
+less,more/less,subtract
+most,most/least,add
+least,most/least,subtract
+many,many/few,add
+few,many/few,subtract
+increase,increase/decrease,add
+decrease,increase/decrease,subtract
