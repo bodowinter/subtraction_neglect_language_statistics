@@ -1,0 +1,463 @@
+---
+title: "Context valence analysis"
+author: "Bodo"
+date: "16/06/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+Load packages:
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse) # for data processing
+library(brms) # for bayesian models
+library(effsize) # for cohen's d
+library(patchwork) # for double plots
+library(tidybayes) # for half-eye plots
+```
+
+Load data:
+
+```{r, message = FALSE, warning = FALSE}
+words <- read_csv('../data/key_words.csv')
+
+words
+```
+
+Load the Snefjella & Kuperman norms
+
+```{r, message = FALSE, warning = FALSE}
+snef <- read_delim('../data/snefjella_kuperman_context_valence.csv',
+                 delim = ' ')
+```
+
+Get the overlap:
+
+```{r}
+words <- left_join(words, snef,
+                   by = c('word' = 'Word'))
+```
+
+## Descriptive statistics
+
+Check overall valence:
+
+```{r}
+words %>% 
+  group_by(type) %>% 
+  summarize(M = mean(Context_Valence, na.rm = TRUE),
+            SD = sd(Context_Valence, na.rm = TRUE))
+```
+
+Pairs that have missing values:
+
+```{r}
+bad_pairs <- filter(words,
+                    is.na(Context_Valence))$pair
+```
+
+Perform Cohen's d:
+
+```{r}
+add_val <- filter(words,
+                  !(pair %in% bad_pairs),
+                  type == 'add')$Context_Valence
+subtract_val <- filter(words,
+                       !(pair %in% bad_pairs),
+                       type == 'subtract')$Context_Valence
+
+# All four of them are more positive:
+
+add_val - subtract_val
+
+# Effect size:
+
+cohen.d(add_val, subtract_val, paired = TRUE)
+```
+
+Get the values for the annotations:
+
+```{r}
+annotations <- tibble(context_val = subtract_val,
+                      pair_label = filter(words,
+                                          !(pair %in% bad_pairs),
+                                          type == 'add')$pair)
+```
+
+Make a plot of this:
+
+```{r}
+# Define plot and aesthetics:
+
+val_p <- filter(words, !(pair %in% bad_pairs)) %>% 
+  ggplot(aes(x = type, y = Context_Valence, fill = type, group = pair))
+
+# Add geoms:
+
+val_p <- val_p +
+  geom_line(col = 'grey') +
+  geom_point(size = 3, shape = 21, alpha = 0.85) +
+  annotate(geom = 'text',
+           x = rep(2.1, nrow(annotations)),
+           y = annotations$context_val,
+           label = annotations$pair_label,
+           hjust = 0,
+           col = 'grey33')
+
+# Add scales and axes labels:
+
+val_p <- val_p +
+  scale_y_continuous(breaks = seq(5.2, 5.8, 0.2)) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  coord_cartesian(xlim = c(1.3, 2.3), ylim = c(5.2, 5.8),
+                  clip = 'off') +
+  xlab(NULL) +
+  ylab('Contextual valence')
+
+# Add themes:
+
+val_p <- val_p +
+  theme_classic() +
+  theme(legend.position = 'none') +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 15,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 10),
+        plot.margin = margin(r = 75, l = 5, b = 5, t = 5))
+
+# Show and save:
+
+val_p
+ggsave(plot = val_p,
+       filename = '../figures/pdf/context_valence.pdf',
+       width = 4, height = 4)
+
+ggsave(plot = val_p,
+       filename = '../figures/png/context_valence.png',
+       width = 4, height = 4)
+
+ggsave(plot = val_p,
+       filename = '../figures/tiff/context_valence.tiff',
+       width = 4, height = 4)
+```
+
+
+## Bayesian model
+
+Make subtract the reference level of the `type` column. I'd wager it's easier to think about stuff moving towards addition, which also gives us positive rather than negative coefficients.
+
+```{r}
+words <- mutate(words,
+               type = factor(type, levels = c('subtract', 'add')))
+```
+
+Prior specifications:
+
+```{r}
+my_prior <- prior(normal(0, 0.05), class = 'b')
+```
+
+Model this with a negative binomial regression model:
+
+```{r}
+val_mdl <- brm(Context_Valence ~ 1 + type + (1|pair),
+               data = words,
+               
+               prior = my_prior,
+               family = gaussian,
+               
+               # MCMC settings:
+              
+               seed = 42, chains = 4, cores = 4,
+               warmup = 4000, iter = 6000,
+               control = list(adapt_delta = 0.99))
+```
+
+Save the model:
+
+```{r}
+save(val_mdl, file = '../models/valence_model.RData')
+```
+
+Check the model:
+
+```{r}
+val_mdl
+```
+
+Perform a test of the posterior probability of the effect being above zero.
+
+```{r}
+hypothesis(val_mdl, 'typeadd < 0')
+```
+
+Or the reverse, depending on how things are ought to be reported:
+
+```{r}
+hypothesis(val_mdl, 'typeadd > 0')
+```
+
+Visualize the posterior distribution of the `type` effect:
+
+```{r}
+val_samples <- posterior_samples(val_mdl)
+```
+
+Plot this:
+
+```{r}
+# Plot basics:
+
+post_p <- val_samples %>% 
+  ggplot(aes(x = b_typeadd)) +
+  stat_halfeye(fill = 'steelblue', alpha = 0.8) +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+
+# Axis and labels:
+
+post_p <- post_p +
+  xlab('Addition coefficient') +
+  ylab('Probability density') +
+  coord_cartesian(y = c(0, 1.1)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.25))
+
+# Cosmetics:
+
+post_p <- post_p +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(face = 'bold', size = 16,
+                                    margin = margin(t = 15)),
+        axis.title.y = element_text(face = 'bold', size = 16,
+                                    margin = margin(r = 15)))
+
+# Show and save:
+
+post_p
+ggsave(plot = post_p, filename = '../figures/pdf/valence_posterior.pdf',
+       width = 7, height = 5)
+
+ggsave(plot = post_p, filename = '../figures/png/valence_posterior.png',
+       width = 7, height = 5)
+
+ggsave(plot = post_p, filename = '../figures/tiff/valence_posterior.tiff',
+       width = 7, height = 5)
+```
+
+## Posterior predictive checks
+
+First, the regular `pp_check()` function, continuous:
+
+```{r}
+pp_check(val_mdl, nsample = 100)
+```
+
+Looks OK.
+
+## Put both into a double plot
+
+Put the raw valence values and the posterior into a double plot:
+
+```{r}
+val_p <- val_p +
+  ggtitle('(a) Contextual valence') +
+  theme(plot.title = element_text(face = 'bold'),
+        plot.title.position = 'plot')
+
+post_p <- post_p +
+  ggtitle('(b) Posterior distribution of valence difference') +
+  theme(plot.title = element_text(face = 'bold'),
+        plot.margin = margin(r = 25),
+        plot.title.position = 'plot')
+
+# Combine:
+
+both_p <- val_p + post_p
+
+# Show and save:
+
+both_p
+ggsave(filename = '../figures/pdf/valence_double_plot.pdf',
+       width = 10, height = 4.5)
+
+ggsave(filename = '../figures/png/valence_double_plot.png',
+       width = 10, height = 4.5)
+
+ggsave(filename = '../figures/tiff/valence_double_plot.tiff',
+       width = 10, height = 4.5)
+```
+
+## Sensitivity analysis to assess impact of different prior choices
+
+Create more extreme (= even more conservative) priors:
+
+```{r}
+weaker_prior <- prior(normal(0, 0.1), class = 'b')
+stronger_prior <- prior(normal(0, 0.01), class = 'b')
+even_stronger_prior <- prior(normal(0, 0.005), class = 'b')
+```
+
+Model this with a negative binomial regression model:
+
+```{r}
+# Weaker than the model we chose, SD = 0.1:
+
+val_mdl_weaker <- brm(Context_Valence ~ 1 + type + (1|pair),
+                      data = words,
+               
+                      prior = weaker_prior,
+                      family = gaussian,
+               
+                      # MCMC settings:
+              
+                      seed = 42, chains = 4, cores = 4,
+                      warmup = 4000, iter = 6000,
+                      control = list(adapt_delta = 0.99))
+
+# Stronger than the model we chose, SD = 0.01:
+
+val_mdl_stronger <- brm(Context_Valence ~ 1 + type + (1|pair),
+                        data = words,
+               
+                        prior = stronger_prior,
+                        family = gaussian,
+               
+                        # MCMC settings:
+              
+                        seed = 42, chains = 4, cores = 4,
+                        warmup = 4000, iter = 6000,
+                        control = list(adapt_delta = 0.99))
+
+# Even stronger than the model we chose, SD = 0.005:
+
+val_mdl_more_stronger <- brm(Context_Valence ~ 1 + type + (1|pair),
+                             data = words,
+               
+                             prior = even_stronger_prior,
+                             family = gaussian,
+               
+                             # MCMC settings:
+              
+                             seed = 42, chains = 4, cores = 4,
+                             warmup = 4000, iter = 6000,
+                             control = list(adapt_delta = 0.99))
+```
+
+Check models:
+
+```{r}
+val_mdl_weaker
+
+val_mdl_stronger
+
+val_mdl_more_stronger
+```
+
+Plot posteriors, weaker:
+
+```{r}
+# Plot basics:
+
+post_p <- posterior_samples(val_mdl_weaker) %>% 
+  ggplot(aes(x = b_typeadd)) +
+  stat_halfeye(fill = 'steelblue', alpha = 0.8) +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+
+# Axis and labels:
+
+post_p <- post_p +
+  xlab('Addition coefficient') +
+  ylab('Probability density') +
+  coord_cartesian(y = c(0, 1.1)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.25))
+
+# Cosmetics:
+
+post_p <- post_p +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(face = 'bold', size = 16,
+                                    margin = margin(t = 15)),
+        axis.title.y = element_text(face = 'bold', size = 16,
+                                    margin = margin(r = 15)))
+
+# Show:
+
+post_p
+```
+
+Plot posteriors, stronger:
+
+```{r}
+# Plot basics:
+
+post_p <- posterior_samples(val_mdl_stronger) %>% 
+  ggplot(aes(x = b_typeadd)) +
+  stat_halfeye(fill = 'steelblue', alpha = 0.8) +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+
+# Axis and labels:
+
+post_p <- post_p +
+  xlab('Addition coefficient') +
+  ylab('Probability density') +
+  coord_cartesian(y = c(0, 1.1)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.25))
+
+# Cosmetics:
+
+post_p <- post_p +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(face = 'bold', size = 16,
+                                    margin = margin(t = 15)),
+        axis.title.y = element_text(face = 'bold', size = 16,
+                                    margin = margin(r = 15)))
+
+# Show:
+
+post_p
+```
+
+Plot posteriors, more stronger:
+
+```{r}
+# Plot basics:
+
+post_p <- posterior_samples(val_mdl_more_stronger) %>% 
+  ggplot(aes(x = b_typeadd)) +
+  stat_halfeye(fill = 'steelblue', alpha = 0.8) +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+
+# Axis and labels:
+
+post_p <- post_p +
+  xlab('Addition coefficient') +
+  ylab('Probability density') +
+  coord_cartesian(y = c(0, 1.1)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.25))
+
+# Cosmetics:
+
+post_p <- post_p +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(face = 'bold', size = 16,
+                                    margin = margin(t = 15)),
+        axis.title.y = element_text(face = 'bold', size = 16,
+                                    margin = margin(r = 15)))
+
+# Show:
+
+post_p
+```
+

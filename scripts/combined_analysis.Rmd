@@ -1,0 +1,352 @@
+---
+title: "Linking semantics with frequency and valence"
+author: "Bodo"
+date: "16/06/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+Load packages:
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse) # for data processing
+library(lsa) # for cosine similarity function
+library(brms) # for bayesian models
+library(effsize) # for cohen's d
+library(patchwork) # for double plots
+library(tidybayes) # for halfeye plots
+```
+
+Load data:
+
+```{r, message = FALSE, warning = FALSE}
+verbs <- read_csv('../data/verb_cosines.csv')
+
+# raw frequencies
+
+COCA <- read_csv('../data/COCA_freq_CD.csv')
+war <- read_csv('../data/warriner_2013_valence_arousal.csv')
+```
+
+Preprocess COCA:
+
+```{r}
+COCA <- select(COCA, w1,
+               freq_coca_spok:freq_coca_acad)
+```
+
+Merge COCA freqs into verbs data frame:
+
+```{r}
+verbs <- left_join(verbs, COCA, by = c('word' = 'w1'))
+```
+
+Get cumulative frequencies (across registers) for simple reporting:
+
+```{r}
+verbs <- mutate(verbs,
+                freq = freq_coca_spok +
+                  freq_coca_fic +
+                  freq_coca_mag +
+                  freq_coca_news +
+                  freq_coca_acad)
+```
+
+Join the Warriner et al. (2013) valence in here:
+
+```{r}
+verbs <- left_join(verbs, select(war, Word, V.Mean.Sum),
+                   by = c('word' = 'Word'))
+```
+
+Compute log frequency:
+
+```{r}
+verbs <- mutate(verbs,
+                log_freq = log10(freq))
+```
+
+## Descriptive statistics
+
+Compute correlation with frequency:
+
+```{r}
+with(verbs, cor(log_freq, diffs, use = 'complete.obs'))
+```
+
+Compute correlation with semantic prosody:
+
+```{r}
+with(verbs, cor(V.Mean.Sum, diffs, use = 'complete.obs'))
+```
+
+## Bayesian models
+
+For regression analysis standardize both:
+
+```{r}
+verbs <- mutate(verbs,
+                # centering:
+                
+                diff_z = diffs - mean(diffs),
+                log_freq_z = log_freq - mean(log_freq, na.rm = TRUE),
+                val_z = V.Mean.Sum - mean(V.Mean.Sum, na.rm = TRUE),
+                
+                # standardizing:
+                
+                diff_z = diff_z / sd(diff_z),
+                log_freq_z = log_freq_z / sd(log_freq_z, na.rm = TRUE),
+                val_z = val_z / sd(val_z, na.rm = TRUE))
+```
+
+
+Regress addition bias onto frequency and context valence:
+
+```{r}
+verb_mdl <- brm(diff_z ~ 1 + log_freq_z + val_z,
+                data = verbs,
+
+                # likelihood:
+                
+                family = gaussian,                
+                                
+                # prior:
+                
+                prior = prior(normal(0, 1), class = 'b'),
+                
+                seed = 666, chains = 4, cores = 4,
+                warmup = 2000, iter = 4000)
+```
+
+Save:
+
+```{r}
+save(verb_mdl, file = '../models/verb_mdl.RData')
+```
+
+Show the results:
+
+```{r}
+verb_mdl
+```
+
+Perform hypothesis tests for frequency:
+
+```{r}
+hypothesis(verb_mdl, 'log_freq_z < 0')
+hypothesis(verb_mdl, 'log_freq_z > 0')
+```
+
+Same for valence:
+
+```{r}
+hypothesis(verb_mdl, 'val_z < 0')
+hypothesis(verb_mdl, 'val_z > 0')
+```
+
+## Frequency plot
+
+Plot marginal effect of frequency:
+
+```{r}
+conditional_effects(verb_mdl, 'log_freq_z')
+```
+
+Superimpose the predictions on a scatterplot:
+
+```{r}
+# Plot basics:
+
+freq_p <- verbs %>%
+  ggplot(aes(x = log_freq_z, y = diff_z)) +
+  geom_point(alpha = 0.5, fill = 'steelblue',
+             pch = 21) +
+  geom_abline(mapping = aes(intercept = fixef(verb_mdl)[1, 1],
+                            slope = fixef(verb_mdl)[2, 1]),
+              size = 1.2)
+
+# Axes and labels:
+
+freq_p <- freq_p +
+  xlab('Log frequency (z-scored)') +
+  ylab('Addition bias (z-scored)')
+
+# Add cosmetics:
+
+freq_p <- freq_p +
+  theme_classic() +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 12,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.title.x = element_text(margin = margin(t = 10, r = 0,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 10),
+        axis.text.y = element_text(face = 'bold', size = 10))
+
+# Show and save:
+
+freq_p
+ggsave(plot = freq_p,
+       filename = '../figures/pdf/frequency_bias.pdf',
+       width = 5.5, height = 4)
+ggsave(plot = freq_p,
+       filename = '../figures/png/frequency_bias.png',
+       width = 5.5, height = 4)
+ggsave(plot = freq_p,
+       filename = '../figures/tiff/frequency_bias.tiff',
+       width = 5.5, height = 4)
+```
+
+Plot marginal effect of valence:
+
+```{r}
+conditional_effects(verb_mdl, 'val_z')
+```
+
+Superimpose the predictions on a scatterplot:
+
+```{r}
+# Plot basics:
+
+val_p <- verbs %>%
+  ggplot(aes(x = val_z, y = diff_z)) +
+  geom_point(alpha = 0.5, fill = 'steelblue',
+             pch = 21) +
+  geom_abline(mapping = aes(intercept = fixef(verb_mdl)[1, 1],
+                            slope = fixef(verb_mdl)[3, 1]),
+              size = 1.2)
+
+# Axes and labels:
+
+val_p <- val_p +
+  xlab('Valence (z-scored)') +
+  ylab('Addition bias (z-scored)')
+
+# Add cosmetics:
+
+val_p <- val_p +
+  theme_classic() +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 12,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.title.x = element_text(margin = margin(t = 10, r = 0,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 10),
+        axis.text.y = element_text(face = 'bold', size = 10))
+
+# Show and save:
+
+val_p
+ggsave(plot = val_p,
+       filename = '../figures/pdf/valence_bias.pdf',
+       width = 5.5, height = 4)
+ggsave(plot = val_p,
+       filename = '../figures/png/valence_bias.png',
+       width = 5.5, height = 4)
+ggsave(plot = val_p,
+       filename = '../figures/tiff/valence_bias.tiff',
+       width = 5.5, height = 4)
+```
+
+Put them both together:
+
+Put the raw frequencies and the posterior into a double plot:
+
+```{r}
+# Tweak plots for double plotting:
+
+freq_p <- freq_p +
+  ggtitle('(a) Addition bias ~ frequency') +
+  theme(plot.title = element_text(face = 'bold'),
+        plot.title.position = 'plot')
+
+val_p <- val_p +
+  ggtitle('(b) Addition bias ~ valence') +
+  theme(plot.title = element_text(face = 'bold'),
+        plot.title.position = 'plot') +
+  ylab(NULL)
+
+# Merge:
+
+both_p <- freq_p + val_p
+
+# Show and save:
+
+both_p
+ggsave(plot = both_p,
+       filename = '../figures/pdf/frequency_valence_double_plot.pdf',
+       width = 11, height = 4.5)
+ggsave(plot = both_p, 
+       filename = '../figures/png/frequency_valence_double_plot.png',
+       width = 11, height = 4.5)
+ggsave(plot = both_p, 
+       filename = '../figures/tiff/frequency_valence_double_plot.tiff',
+       width = 11, height = 4.5)
+```
+
+Show the posteriors:
+
+```{r}
+# Basic plot:
+
+post_p <- verb_mdl %>% 
+  spread_draws(b_log_freq_z,
+               b_val_z) %>% 
+  pivot_longer(cols = b_log_freq_z:b_val_z,
+               names_to = 'coefficient',
+               values_to = 'estimate') %>% 
+  mutate(coefficient = ifelse(coefficient == 'b_val_z',
+                              'valence', 'frequency')) %>% 
+  ggplot(aes(x = estimate, y = coefficient)) +
+  stat_halfeye(fill = 'steelblue') +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+
+# Axes and labels:
+
+post_p <- post_p +
+  coord_cartesian(xlim = c(-0.2, 0.7)) +
+  scale_x_continuous(breaks = seq(-0.2, 0.6, 0.2)) +
+  xlab('Posterior estimate') +
+  ylab(NULL)
+
+# Cosmetics:
+
+post_p <- post_p +
+  theme_classic() +
+  theme(axis.text.y = element_text(size = 14,
+                                   face = 'bold'),
+        axis.title.x = element_text(margin = margin(t = 10, r = 0,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 10))
+
+# Show and save:
+
+post_p
+ggsave(plot = post_p,
+       filename = '../figures/pdf/valence_frequency_posteriors.pdf',
+       width = 6.5, height = 4)
+ggsave(plot = post_p,
+       filename = '../figures/png/valence_frequency_posteriors.png',
+       width = 6.5, height = 4)
+ggsave(plot = post_p,
+       filename = '../figures/tiff/valence_frequency_posteriors.tiff',
+       width = 6.5, height = 4)
+```
+
+
+
+
+
+
+
+
+
+

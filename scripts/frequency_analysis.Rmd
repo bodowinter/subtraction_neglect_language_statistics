@@ -1,0 +1,490 @@
+---
+title: "Frequency analysis"
+author: "Bodo"
+date: "16/06/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+Load packages:
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse) # for data processing
+library(brms) # for bayesian models
+library(effsize) # for cohen's d
+library(patchwork) # for double plots
+library(tidybayes) # for half-eye plots
+```
+
+Load data:
+
+```{r, message = FALSE, warning = FALSE}
+# Frequencies:
+
+COCA <- read_csv('../data/add_subtract_all_frequencies.csv')
+```
+
+Quick glance at the structure of the frequency table. Each row is a word, then there's all the frequency information from the different sub-corpora.
+
+```{r}
+COCA
+```
+
+## Descriptive stats
+
+Get the sum per word:
+
+```{r}
+COCA_freqs <- COCA %>% 
+  group_by(pair, type, word) %>% 
+  summarize(freq = sum(freq))
+
+COCA_freqs
+```
+
+Calculate by what factor the add-type word is more frequent than the subtract-type word:
+
+```{r}
+add_totals <- COCA_freqs[rep(c(TRUE, FALSE), 7), ]$freq
+subtract_totals <- COCA_freqs[rep(c(FALSE, TRUE), 7), ]$freq
+
+ratios <- add_totals / subtract_totals
+ratios <- tibble(pair = COCA_freqs[rep(c(TRUE, FALSE), 7), ]$pair,
+       ratio = ratios)
+
+ratios
+```
+
+Check how much overall more frequent the add-type word is:
+
+```{r}
+COCA_total <- COCA_freqs %>%
+  group_by(type) %>% 
+  summarize(total = sum(freq))
+
+COCA_total
+```
+
+Compute Cohen's d based on the log-transformed data:
+
+```{r}
+COCA_freqs <- mutate(COCA_freqs,
+                     logfreq = log10(freq))
+
+add_logs <- filter(COCA_freqs, type == 'add')$logfreq
+subtract_logs <- filter(COCA_freqs, type == 'subtract')$logfreq
+
+cohen.d(add_logs, subtract_logs, paired = TRUE)
+```
+
+Get the raw materials for annotations ready:
+
+```{r}
+annotate_freqs <- filter(COCA_freqs, type == 'subtract') %>% pull(logfreq)
+labels <- filter(COCA_freqs, type == 'subtract') %>% pull(pair)
+```
+
+Make a plot of this:
+
+```{r}
+# Define plot and aesthetics:
+
+freq_p <- COCA_freqs %>% 
+  ggplot(aes(x = type, y = logfreq, fill = type, group = pair))
+
+# Add geoms:
+
+freq_p <- freq_p +
+  geom_line(col = 'grey') +
+  geom_point(size = 3, shape = 21, alpha = 0.85) +
+  annotate(geom = 'text',
+           x = rep(2.1, nrow(COCA_freqs) / 2),
+           y = annotate_freqs,
+           label = labels,
+           hjust = 0,
+           col = 'grey33')
+
+# Add scales and axes labels:
+
+freq_p <- freq_p +
+  scale_y_continuous(breaks = seq(2, 7, 1)) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  coord_cartesian(xlim = c(1.3, 2.3), ylim = c(2, 7),
+                  clip = 'off') +
+  xlab(NULL) +
+  ylab('Average log10 frequency')
+
+# Add themes:
+
+freq_p <- freq_p +
+  theme_classic() +
+  theme(legend.position = 'none') +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 15,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 10),
+        plot.margin = margin(r = 75, l = 5, b = 5, t = 5))
+
+# Show and save:
+
+freq_p
+ggsave(plot = freq_p,
+       filename = '../figures/pdf/word_frequencies.pdf',
+       width = 4, height = 4)
+
+ggsave(plot = freq_p,
+       filename = '../figures/png/word_frequencies.png',
+       width = 4, height = 4)
+
+ggsave(plot = freq_p,
+       filename = '../figures/tiff/word_frequencies.tiff',
+       width = 4, height = 4)
+```
+
+## Bayesian model
+
+Make subtract the reference level of the `type` column. I'd wager it's easier to think about stuff moving towards addition, which also gives us positive rather than negative coefficients.
+
+```{r}
+COCA <- mutate(COCA,
+               type = factor(type, levels = c('subtract', 'add')))
+```
+
+Let's find an appropriate weakly informative prior. We need to keep in mind that the model is in log space, and we need to keep the intercept in mind. We'll use `type` as treatment coded predictor, so `subtract` will be the reference level:
+
+```{r}
+intercept <- log(mean(filter(COCA, type == 'subtract')$freq))
+
+intercept
+```
+
+What would a normal distribution (centered at zero) with SD = 1 amount to assuming as likely changes? 68% of the prior probability mass for the differences would be:
+
+```{r}
+diff(c(exp(intercept + 1), exp(intercept - 1)))
+```
+
+That's a difference in around 2,400. What about SD = 2? 68% of the prior probability mass for the differences would be:
+
+```{r}
+diff(c(exp(intercept + 2), exp(intercept - 2)))
+```
+
+That's a difference in around 7400. Given the big frequency differences and the size of the corpus (see Table 1), this is somewhat conservative; but either way, it is more conservative than would be fitting a corresponding lme4 model.
+
+```{r}
+my_prior <- prior(normal(0, 2), class = 'b')
+```
+
+Model this with a negative binomial regression model:
+
+```{r}
+freq_mdl <- brm(freq ~ 1 + type +
+                  (1 + type|pair) + (1 + type|file) + (1 + type|register),
+               data = COCA,
+               
+               family = negbinomial,
+               prior = my_prior,
+               
+               # MCMC settings:
+               
+               seed = 42, chains = 4, cores = 4,
+               warmup = 2000, iter = 4000,
+               control = list(adapt_delta = 0.99,
+                              max_treedepth = 13))
+```
+
+Save the model:
+
+```{r}
+save(freq_mdl, file = '../models/frequency_model.RData')
+```
+
+Check the model:
+
+```{r}
+freq_mdl
+```
+
+Perform a test of the posterior probability of the effect being above zero.
+
+```{r}
+hypothesis(freq_mdl, 'typeadd < 0')
+```
+
+Or the reverse, depending on how things are ought to be reported:
+
+```{r}
+hypothesis(freq_mdl, 'typeadd > 0')
+```
+
+Visualize the posterior distribution of the `type` effect:
+
+```{r}
+freq_samples <- posterior_samples(freq_mdl)
+```
+
+Plot this:
+
+```{r}
+post_p <- freq_samples %>% 
+  ggplot(aes(x = b_typeadd)) +
+  stat_halfeye(fill = 'steelblue', alpha = 0.8) +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+
+post_p <- post_p +
+  xlab('Addition coefficient') +
+  ylab('Probability density') +
+  coord_cartesian(y = c(0, 1.1)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.25))
+
+post_p <- post_p +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(face = 'bold', size = 14,
+                                    margin = margin(t = 10)),
+        axis.title.y = element_text(face = 'bold', size = 16,
+                                    margin = margin(r = 12)))
+
+# Show and save:
+
+post_p
+
+ggsave(plot = post_p, filename = '../figures/pdf/frequency_posterior.pdf',
+       width = 7, height = 5)
+
+ggsave(plot = post_p, filename = '../figures/png/frequency_posterior.png',
+       width = 7, height = 5)
+
+ggsave(plot = post_p, filename = '../figures/tiff/frequency_posterior.tiff',
+       width = 7, height = 5)
+```
+
+## Put both into a double plot
+
+Put the raw frequencies and the posterior into a double plot:
+
+```{r}
+freq_p <- freq_p +
+  ggtitle('(a) Log frequencies') +
+  theme(plot.title = element_text(face = 'bold'),
+        plot.title.position = 'plot')
+
+post_p <- post_p +
+  ggtitle('(b) Posterior distribution of frequency difference') +
+  theme(plot.title = element_text(face = 'bold'),
+        plot.margin = margin(r = 25),
+        plot.title.position = 'plot')
+
+# Combine:
+
+both_p <- freq_p + post_p
+
+# Show and save:
+
+both_p
+ggsave(filename = '../figures/pdf/frequencies_double_plot.pdf',
+       width = 10, height = 4.5)
+
+ggsave(filename = '../figures/png/frequencies_double_plot.png',
+       width = 10, height = 4.5)
+
+ggsave(filename = '../figures/tiff/frequencies_double_plot.tiff',
+       width = 10, height = 4.5)
+```
+
+## Posterior predictive checks
+
+First, the regular `pp_check()` function, continuous:
+
+```{r, fig.width = 9, fig.height = 5}
+pp_check(freq_mdl, nsample = 100)
+```
+
+Then ECDF:
+
+```{r, fig.width = 9, fig.height = 5}
+pp_check(freq_mdl, nsample = 100, type = 'ecdf_overlay')
+```
+
+Not quite.
+
+## Sensitivity analysis to assess impact of different prior choices
+
+Assess how different priors impact the analysis, focusing on the standard deviation of the weakly informative prior:
+
+```{r}
+stronger_prior <- prior(normal(0, 1), class = 'b')
+even_stronger_prior <- prior(normal(0, 0.5), class = 'b')
+extreme_prior <- prior(normal(0, 0.1), class = 'b')
+```
+
+Build different models:
+
+```{r}
+# Stronger priors, SD = 1:
+
+mdl_stronger <- brm(freq ~ 1 + type +
+                      (1 + type|pair) +
+                      (1 + type|file) +
+                      (1 + type|register),
+                    data = COCA,
+               
+                    family = negbinomial,
+                    prior = stronger_prior,
+               
+                    # MCMC settings:
+               
+                    seed = 42, chains = 4, cores = 4,
+                    warmup = 2000, iter = 4000,
+                    control = list(adapt_delta = 0.99,
+                                   max_treedepth = 13))
+
+# Even stronger priors, SD = 0.5:
+
+mdl_more_stronger <- brm(freq ~ 1 + type +
+                           (1 + type|pair) + (1 + type|file) +
+                           (1 + type|register),
+                         data = COCA,
+               
+                         family = negbinomial,
+                         prior = even_stronger_prior,
+               
+                         # MCMC settings:
+               
+                         seed = 42, chains = 4, cores = 4,
+                         warmup = 2000, iter = 4000,
+                         control = list(adapt_delta = 0.99,
+                                        max_treedepth = 13))
+
+# Even stronger priors, SD = 0.1:
+
+mdl_extreme <- brm(freq ~ 1 + type +
+                     (1 + type|pair) + (1 + type|file) + (1 + type|register),
+                   data = COCA,
+               
+                   family = negbinomial,
+                   prior = extreme_prior,
+               
+                   # MCMC settings:
+               
+                   seed = 42, chains = 4, cores = 4,
+                   warmup = 2000, iter = 4000,
+                   control = list(adapt_delta = 0.99,
+                                  max_treedepth = 13))
+```
+
+Save the models:
+
+```{r}
+save(mdl_stronger,
+     file = '../models/frequency_model_stronger_priors.RData')
+save(mdl_extreme,
+     file = '../models/frequency_model_extreme.RData')
+```
+
+Show models:
+
+```{r}
+mdl_more_stronger
+
+mdl_extreme
+```
+
+Plot the posteriors of the coefficients for each model. Stronger:
+
+```{r}
+# Plot basics:
+
+post_p <- posterior_samples(mdl_stronger) %>% 
+  ggplot(aes(x = b_typeadd)) +
+  stat_halfeye(fill = 'steelblue', alpha = 0.8) +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+
+# Axes and labels:
+
+post_p <- post_p +
+  xlab('Addition coefficient') +
+  ylab('Probability density') +
+  coord_cartesian(y = c(0, 1.1)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.25))
+
+# Cosmetics:
+
+post_p <- post_p +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(face = 'bold', size = 14,
+                                    margin = margin(t = 10)),
+        axis.title.y = element_text(face = 'bold', size = 16,
+                                    margin = margin(r = 12)))
+```
+
+Plot the posteriors of the coefficients for each model. Even stronger:
+
+```{r}
+# Plot basics:
+
+post_p <- posterior_samples(mdl_more_stronger) %>% 
+  ggplot(aes(x = b_typeadd)) +
+  stat_halfeye(fill = 'steelblue', alpha = 0.8) +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+
+# Axes and labels:
+
+post_p <- post_p +
+  xlab('Addition coefficient') +
+  ylab('Probability density') +
+  coord_cartesian(y = c(0, 1.1)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.25))
+
+# Cosmetics:
+
+post_p <- post_p +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(face = 'bold', size = 14,
+                                    margin = margin(t = 10)),
+        axis.title.y = element_text(face = 'bold', size = 16,
+                                    margin = margin(r = 12)))
+```
+
+Most extreme:
+
+```{r}
+# Plot basics:
+
+post_p <- posterior_samples(mdl_extreme) %>% 
+  ggplot(aes(x = b_typeadd)) +
+  stat_halfeye(fill = 'steelblue', alpha = 0.8) +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+
+# Axes and labels:
+
+post_p <- post_p +
+  xlab('Addition coefficient') +
+  ylab('Probability density') +
+  coord_cartesian(y = c(0, 1.1)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.25))
+
+# Cosmetics:
+
+post_p <- post_p +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(face = 'bold', size = 14,
+                                    margin = margin(t = 10)),
+        axis.title.y = element_text(face = 'bold', size = 16,
+                                    margin = margin(r = 12)))
+```
+
+

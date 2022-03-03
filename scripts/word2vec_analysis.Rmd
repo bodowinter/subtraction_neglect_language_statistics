@@ -1,0 +1,872 @@
+---
+title: "Distributional semantic analysis"
+author: "Bodo"
+date: "16/06/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+Load packages:
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse) # for data processing
+library(lsa) # for cosine similarity function
+library(brms) # for bayesian models
+library(effsize) # for cohen's d
+library(patchwork) # for double plots
+library(tidybayes) # for half-eye plots
+```
+
+Load data:
+
+```{r, message = FALSE, warning = FALSE}
+wiki <- read_csv('../data/wiki_word2vec.csv')
+```
+
+Quick glance at the structure of this table. Each row is a word, then there's 300 dimensions from Facebook's word2vec model.
+
+```{r}
+wiki
+```
+
+Load English Lexicon Project data (used for POS tags for the baseline analysis later):
+
+```{r, message = FALSE, warning = FALSE}
+ELP <- read_csv('../data/ELP_with_POS_cleaned.csv')
+```
+
+
+## Create word lists
+
+First, let's extract the word vectors of 'add', 'addition', 'subtract', and 'subtraction'. We'll store them as vectors in R.
+
+```{r}
+add <- filter(wiki, word == 'add') %>%
+  select(dim_1:dim_300) %>% unlist() %>% as.vector()
+
+addition <- filter(wiki, word == 'addition') %>%
+  select(dim_1:dim_300) %>% unlist() %>% as.vector()
+
+subtract <- filter(wiki, word == 'subtract') %>%
+  select(dim_1:dim_300) %>% unlist() %>% as.vector()
+
+subtraction <- filter(wiki, word == 'subtraction') %>%
+  select(dim_1:dim_300) %>% unlist() %>% as.vector()
+```
+
+Get "change words" from Collins dictionary online, synonyms of "change" (verb):
+
+```{r}
+change_words <- c('change', 'reform', 'transform', 'adjust',
+                  'moderate', 'revise', 'modify', 'remodel',
+                  'reorganize', 'restyle', 'convert')
+
+change_df <- filter(wiki, word %in% change_words)
+```
+
+Get "improve words" from Collins dictionary online, synonyms of "change" (verb), exclude phrasal verbs:
+
+```{r}
+improve_words <- c('enhance', 'better', # 'add to' is also listed
+                   'upgrade', 'amend', 'mend',
+                   'augment', 'embellish', # 'touch up' is also listed
+                   'ameliorate' # 'polish up' is also listed
+                   )
+
+improve_df <- filter(wiki, word %in% improve_words)
+```
+
+## Cosines for change words
+
+Create a tibble to store cosines for each of the change words:
+
+```{r}
+change_cos <- tibble(word = change_words,
+                     add = rep(NA_real_, length(change_words)),
+                     addition = rep(NA_real_, length(change_words)),
+                     subtract = rep(NA_real_, length(change_words)),
+                     subtraction = rep(NA_real_, length(change_words)))
+
+# Check:
+
+change_cos
+```
+
+Fill this with the cosines. We use the fact here that change_cos has the same order as change_df
+
+```{r}
+for (i in 1:nrow(change_cos)) {
+  this_vec <- as.vector(unlist(change_df[i, -1]))
+  
+  change_cos[i, 2] <- as.vector(cosine(this_vec, add)) # add cosine
+  change_cos[i, 3] <- as.vector(cosine(this_vec, addition)) # addition
+  change_cos[i, 4] <- as.vector(cosine(this_vec, subtract)) # subtract
+  change_cos[i, 5] <- as.vector(cosine(this_vec, subtraction)) # subtraction
+}
+```
+
+Show this:
+
+```{r}
+change_cos
+```
+
+Average "add" and "addition" cosine and same for subtraction, then compute a difference score:
+
+```{r}
+change_cos <- change_cos %>%
+  mutate(add_bias = (add + addition) / 2,
+         subtract_bias = (subtract + subtraction) / 2,
+         diff = add_bias - subtract_bias)
+
+# Show:
+
+change_cos
+```
+
+Make this from wide format into long format for plotting and inferential statistics:
+
+```{r}
+change_long <- change_cos %>%
+  select(word, add_bias, subtract_bias) %>% 
+  pivot_longer(cols = add_bias:subtract_bias,
+               names_to = 'type',
+               values_to = 'cosine')
+```
+
+Change the labels to something more descriptive for plotting:
+
+```{r}
+change_long <- mutate(change_long,
+                      type = ifelse(type == 'add_bias', 'addition\nwords',
+                                    'subtraction\nwords'))
+```
+
+Get the words for annotations:
+
+```{r}
+sub_cosines <- filter(change_long, type == 'subtraction\nwords')$cosine
+sub_words <- filter(change_long, type == 'subtraction\nwords')$word
+```
+
+Make a plot of this:
+
+```{r}
+# Define plot and aesthetics:
+
+change_p <- change_long %>% 
+  ggplot(aes(x = type, y = cosine, fill = type, group = word))
+
+# Add geoms:
+
+change_p <- change_p +
+  geom_line(col = 'grey') +
+  geom_point(size = 3, shape = 21, alpha = 0.85) +
+  annotate(geom = 'text',
+           x = rep(2.1, length(sub_cosines)),
+           y = sub_cosines,
+           label = sub_words,
+           hjust = 0,
+           col = 'grey33')
+
+# Add scales and axes labels:
+
+change_p <- change_p +
+  scale_y_continuous(breaks = seq(0.2, 0.5, 0.1),
+                     limits = c(0.2, 0.5)) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  coord_cartesian(xlim = c(1.3, 2.3),
+                  ylim = c(0.2, 0.55)) +
+  xlab(NULL) +
+  ylab('Average cosine similarity')
+
+# Add themes:
+
+change_p <- change_p +
+  theme_classic() +
+  theme(legend.position = 'none') +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 15,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 10),
+        plot.title = element_text(face = 'bold'))
+
+# Show in markdown:
+
+change_p
+
+# Save:
+
+ggsave(plot = change_p,
+       filename = '../figures/pdf/change_cosines.pdf',
+       width = 3, height = 4)
+ggsave(plot = change_p,
+       filename = '../figures/png/change_cosines.png',
+       width = 3, height = 4)
+ggsave(plot = change_p,
+       filename = '../figures/tiff/change_cosines.tiff',
+       width = 3, height = 4)
+```
+
+Now for modeling, set a weakly informative prior centered at zero difference, SD = 0.1 (meaning that a 68% of differences are assumed to be [-0.1, +0.1]; 95% are assumed to be [-0.2, +0.2].
+
+```{r}
+weak_prior <- c(prior('normal(0, 0.1)', class = 'Intercept'))
+```
+
+We'll use the difference scores for this one, which will amount to the equivalent of a Bayesian paired t-test:
+
+The Bayesian model:
+
+```{r, message = FALSE, warning = FALSE}
+change_mdl <- brm(diff ~ 1,
+                  data = change_cos,
+                  prior = weak_prior,
+                  
+                  # MCMC settings:
+                  
+                  seed = 42, chains = 4, cores = 4,
+                  warmup = 2000, iter = 4000)
+```
+
+Check posterior predictive simulations:
+
+```{r, fig.width = 6, fig.height =4}
+pp_check(change_mdl, nsample = 100)
+```
+
+Looks good. The model could possibly have predicted the data.
+
+Check the model:
+
+```{r}
+change_mdl
+```
+
+Perform a test of the posterior probability of the effect being below/above zero.
+
+```{r}
+hypothesis(change_mdl, 'Intercept < 0')
+hypothesis(change_mdl, 'Intercept > 0')
+```
+
+Calculate Cohen's d for effect size reporting:
+
+```{r}
+suppressWarnings(cohen.d(cosine ~ type, data = change_long, paired = TRUE))
+```
+
+## Cosines for improve words
+
+Create a tibble to store cosines for each of the change words:
+
+```{r}
+improve_cos <- tibble(word = improve_words,
+                      add = rep(NA_real_, length(improve_words)),
+                      addition = rep(NA_real_, length(improve_words)),
+                      subtract = rep(NA_real_, length(improve_words)),
+                      subtraction = rep(NA_real_, length(improve_words)))
+
+# Check:
+
+improve_cos
+```
+
+Fill this with the cosines. We use the fact here that improve_cos has the same order as improve_df:
+
+```{r}
+for (i in 1:nrow(improve_cos)) {
+  this_vec <- as.vector(unlist(improve_df[i, -1]))
+  
+  improve_cos[i, 2] <- as.vector(cosine(this_vec, add)) # add cosine
+  improve_cos[i, 3] <- as.vector(cosine(this_vec, addition)) # addition
+  improve_cos[i, 4] <- as.vector(cosine(this_vec, subtract)) # subtract
+  improve_cos[i, 5] <- as.vector(cosine(this_vec, subtraction)) # subtraction
+}
+```
+
+Show this:
+
+```{r}
+improve_cos
+```
+
+Average "add" and "addition" cosine and same for subtraction, then compute a difference score:
+
+```{r}
+improve_cos <- improve_cos %>%
+  mutate(add_bias = (add + addition) / 2,
+         subtract_bias = (subtract + subtraction) / 2,
+         diff = add_bias - subtract_bias)
+
+# Show:
+
+improve_cos
+```
+
+Make this from wide format into long format for plotting and inferential statistics:
+
+```{r}
+improve_long <- improve_cos %>%
+  select(word, add_bias, subtract_bias) %>% 
+  pivot_longer(cols = add_bias:subtract_bias,
+               names_to = 'type',
+               values_to = 'cosine')
+```
+
+Change the labels to something more descriptive for plotting:
+
+```{r}
+improve_long <- mutate(improve_long,
+                       type = ifelse(type == 'add_bias', 'addition\nwords',
+                                     'subtraction\nwords'))
+```
+
+Get the words for annotations:
+
+```{r}
+sub_cosines <- filter(improve_long, type == 'subtraction\nwords')$cosine
+sub_words <- filter(improve_long, type == 'subtraction\nwords')$word
+```
+
+Make a plot of this:
+
+```{r}
+# Define plot and aesthetics:
+
+improve_p <- improve_long %>% 
+  ggplot(aes(x = type, y = cosine, fill = type, group = word))
+
+# Add geoms:
+
+improve_p <- improve_p +
+  geom_line(col = 'grey') +
+  geom_point(size = 3, shape = 21, alpha = 0.85) +
+  annotate(geom = 'text',
+           x = rep(2.1, length(sub_cosines)),
+           y = sub_cosines,
+           label = sub_words,
+           hjust = 0,
+           col = 'grey33')
+
+# Add scales and axes labels:
+
+improve_p <- improve_p +
+  coord_cartesian(xlim = c(1.3, 2.3),
+                  ylim = c(0.15, 0.55)) +
+  scale_y_continuous(breaks = seq(0.1, 0.6, 0.1),
+                     limits = c(0.1, 0.6)) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  xlab(NULL) +
+  ylab('Average cosine similarity')
+
+# Add themes:
+
+improve_p <- improve_p +
+  theme_classic() +
+  theme(legend.position = 'none') +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 15,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 10),
+        plot.title = element_text(face = 'bold'))
+
+# Show in markdown:
+
+improve_p
+
+# Save:
+
+ggsave(plot = improve_p,
+       filename = '../figures/pdf/improve_cosines.pdf',
+       width = 3, height = 4)
+ggsave(plot = improve_p,
+       filename = '../figures/png/improve_cosines.png',
+       width = 3, height = 4)
+ggsave(plot = improve_p,
+       filename = '../figures/tiff/improve_cosines.tiff',
+       width = 3, height = 4)
+```
+
+We'll use the difference scores for this one, which will amount to the equivalent of a Bayesian paired t-test. We'll re-use the weakly informative priors from the change verb analysis.
+
+```{r, message = FALSE, warning = FALSE}
+improve_mdl <- brm(diff ~ 1,
+                  data = improve_cos,
+                  prior = weak_prior,
+                  
+                  # MCMC settings:
+                  
+                  seed = 42, chains = 4, cores = 4,
+                  warmup = 2000, iter = 4000)
+```
+
+Check posterior predictive simulations:
+
+```{r, fig.width = 6, fig.height =4}
+pp_check(improve_mdl, nsample = 100)
+```
+
+Looks good. The model could possibly have predicted the data.
+
+Check the model:
+
+```{r}
+improve_mdl
+```
+
+Perform a test of the posterior probability of the effect being above/below zero.
+
+```{r}
+hypothesis(improve_mdl, 'Intercept < 0')
+hypothesis(improve_mdl, 'Intercept > 0')
+```
+
+Calculate Cohen's d for effect size reporting:
+
+```{r}
+suppressWarnings(cohen.d(cosine ~ type, data = improve_long, paired = TRUE))
+```
+
+## Double plots:
+
+Add titles and get rid of second y-axis:
+
+```{r}
+change_p <- change_p +
+  ggtitle('(a) Synonyms of "to change"')
+
+improve_p <- improve_p +
+  ggtitle('(b) Synonyms of "to improve"') +
+  ylab(NULL)
+```
+
+Put both together using patchwork:
+
+```{r, fig.width = 6.5, height = 4}
+both_p <- change_p + plot_spacer() + improve_p + plot_spacer() +
+  plot_layout(widths = c(3, 0.5, 3, 1))
+
+# Show and save:
+
+both_p
+
+ggsave(plot = both_p, filename = '../figures/pdf/double_plot.pdf',
+       width = 6.5, height = 4)
+ggsave(plot = both_p, filename = '../figures/png/double_plot.png',
+       width = 6.5, height = 4)
+ggsave(plot = both_p, filename = '../figures/tiff/double_plot.tiff',
+       width = 6.5, height = 4)
+```
+
+Double plot of posterior distributions. First, the plot that has the posterior samples of the `change_mdl`, then the ones of the `improve_mdl`:
+
+```{r}
+# Plot basics:
+
+change_post_p <- posterior_samples(change_mdl) %>% 
+  ggplot(aes(x = b_Intercept)) +
+  stat_halfeye(fill = 'steelblue', alpha = 0.8) +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+
+# Axes and labels:
+
+change_post_p <- change_post_p +
+  xlab('Similarity difference\n(addition - subtraction)') +
+  ylab('Probability density') +
+  coord_cartesian(y = c(0, 1.1)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.25))
+
+# Cosmetics:
+
+change_post_p <- change_post_p +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(face = 'bold', size = 14,
+                                    margin = margin(t = 10)),
+        axis.title.y = element_text(face = 'bold', size = 16,
+                                    margin = margin(r = 12)))
+
+# Show:
+
+change_post_p
+```
+
+Then the `improve_mdl` posteriors:
+
+```{r}
+# Plot basics:
+
+improve_post_p <- posterior_samples(improve_mdl) %>% 
+  ggplot(aes(x = b_Intercept)) +
+  stat_halfeye(fill = 'steelblue', alpha = 0.8) +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+
+# Axes and labels:
+
+improve_post_p <- improve_post_p +
+  xlab('Similarity difference\n(addition - subtraction)') +
+  ylab('Probability density') +
+  coord_cartesian(y = c(0, 1.1)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.25))
+
+# Cosmetics:
+
+improve_post_p <- improve_post_p +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(face = 'bold', size = 14,
+                                    margin = margin(t = 10)),
+        axis.title.y = element_text(face = 'bold', size = 16,
+                                    margin = margin(r = 12)))
+
+# Show:
+
+improve_post_p
+```
+
+Show both posterior distributions:
+
+```{r}
+# First plot axes and title:
+
+change_post_p <- change_post_p +
+  ggtitle('(a) Change words') + 
+  theme(plot.title = element_text(size = 14, face = 'bold'),
+        plot.title.position = 'plot')
+
+# Second plot axes and title:
+
+improve_post_p <- improve_post_p +
+  ylab(NULL) + 
+  ggtitle('(b) Improve words') +
+  theme(plot.title = element_text(size = 14, face = 'bold'),
+        plot.title.position = 'plot')
+
+# Combine:
+ 
+both_p <- change_post_p + improve_post_p
+
+# Show and save:
+
+both_p
+ggsave(plot = both_p,
+       filename = '../figures/pdf/change_improve_posteriors.pdf',
+       width = 10, height = 4)
+ggsave(plot = both_p,
+       filename = '../figures/png/change_improve_posteriors.png',
+       width = 10, height = 4)
+ggsave(plot = both_p,
+       filename = '../figures/tiff/change_improve_posteriors.tiff',
+       width = 10, height = 4)
+```
+
+## Baseline analysis: all words
+
+Could it be that _all_ words are biased towards addition? To assess this, create a distribution of similarity to addition and subtraction for 10,000 randomly selected words from the wiki corpus.
+
+First, select the sub-set:
+
+```{r}
+set.seed(42)
+N <- 10000
+wiki_10000 <- sample_n(wiki, N)
+```
+
+Setup empty vectors to be filled with scores for each word:
+
+```{r}
+add_res <- numeric(N)
+addition_res <- numeric(N)
+subtract_res <- numeric(N)
+subtraction_res <- numeric(N)
+```
+
+Loop through the wiki_10000 data frame and compute the average cosine similarities:
+
+```{r}
+for (i in 1:nrow(wiki_10000)) {
+  this_vec <- unlist(wiki_10000[i, 2:ncol(wiki_10000)])
+  
+  add_res[i] <- as.vector(cosine(this_vec, add))
+  addition_res[i] <- as.vector(cosine(this_vec, addition))
+  subtract_res[i] <- as.vector(cosine(this_vec, subtract))
+  subtraction_res[i] <- as.vector(cosine(this_vec, subtraction))
+  
+  if (i %% 100 == 0) cat(str_c(i, '\n'))
+}
+```
+
+Compute the averages:
+
+```{r}
+addition_sims <- (add_res + addition_res) / 2
+subtraction_sims <- (subtract_res + subtraction_res) / 2
+```
+
+Calcualte the difference scores and save in tibble:
+
+```{r}
+wiki_diffs <- tibble(diffs = addition_sims - subtraction_sims)
+```
+
+Get values for the average "change" verb and "improve" verb difference:
+
+```{r}
+change_diff <- mean(change_cos$diff)
+improve_diff <- mean(improve_cos$diff)
+
+# Check:
+
+change_diff
+improve_diff
+```
+
+Check the average for the wiki_10000 diffs:
+
+```{r}
+mean(wiki_diffs$diffs)
+```
+
+Good, this is quite different.
+
+Plot this distribution:
+
+```{r}
+# Setup plot basics:
+
+diff_10000_p <- wiki_diffs %>% 
+  ggplot(aes(x = diffs)) +
+  geom_vline(aes(xintercept = 0), linetype = 'dashed')  +
+  geom_density(fill = 'steelblue', alpha = 0.6) +
+  geom_vline(aes(xintercept = change_diff)) + 
+  geom_vline(aes(xintercept = improve_diff), col = 'grey')
+
+# Scales and axes:
+
+diff_10000_p <- diff_10000_p +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 14),
+                     breaks = seq(0, 14, 2)) +
+  xlab('Cosine - similarity differences') +
+  ylab('Probability density')
+
+# Cosmetics:
+
+diff_10000_p <- diff_10000_p +
+  theme_classic() +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 15,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.title.x = element_text(margin = margin(t = 15, r = 0,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 10),
+        plot.title = element_text(face = 'bold'))
+
+# Show and save:
+
+diff_10000_p
+ggsave(plot = diff_10000_p,
+       filename = '../figures/pdf/random_10000_comparison.pdf',
+       width = 6, height = 3)
+ggsave(plot = diff_10000_p,
+       filename = '../figures/png/random_10000_comparison.png',
+       width = 6, height = 3)
+ggsave(plot = diff_10000_p,
+       filename = '../figures/tiff/random_10000_comparison.tiff',
+       width = 6, height = 3)
+```
+
+What percentile is the change / improve verb similarity?
+
+```{r}
+percentile <- ecdf(wiki_diffs$diffs)
+percentile(change_diff)
+percentile(improve_diff)
+```
+
+## Baseline analysis: Verbs only
+
+The last analysis was focused on all words. But a more appropriate baseline may be verbs. So let's select 10000 random verbs from the ELP that are not among our target words:
+
+```{r}
+set.seed(666)
+N <- 10000
+
+verbs <- filter(ELP, POS == 'VB',
+                !Word %in% c(change_words, improve_words)) %>% 
+  sample_n(N) %>% 
+  pull(Word)
+```
+
+First, select the sub-set:
+
+```{r}
+verbs_10000 <- filter(wiki, word %in% verbs)
+```
+
+Setup empty vectors to be filled with scores for each word:
+
+```{r}
+add_res <- numeric(nrow(verbs_10000))
+addition_res <- numeric(nrow(verbs_10000))
+subtract_res <- numeric(nrow(verbs_10000))
+subtraction_res <- numeric(nrow(verbs_10000))
+```
+
+Loop through the verbs_10000 data frame and compute the average cosine similarities:
+
+```{r}
+for (i in 1:nrow(verbs_10000)) {
+  this_vec <- unlist(verbs_10000[i, 2:ncol(verbs_10000)])
+  
+  add_res[i] <- as.vector(cosine(this_vec, add))
+  addition_res[i] <- as.vector(cosine(this_vec, addition))
+  subtract_res[i] <- as.vector(cosine(this_vec, subtract))
+  subtraction_res[i] <- as.vector(cosine(this_vec, subtraction))
+  
+  if (i %% 200 == 0) cat(str_c(i, '\n'))
+}
+```
+
+Compute the averages:
+
+```{r}
+addition_sims <- (add_res + addition_res) / 2
+subtraction_sims <- (subtract_res + subtraction_res) / 2
+```
+
+Calculate the difference scores and save in tibble:
+
+```{r}
+verbs_diffs <- tibble(diffs = addition_sims - subtraction_sims)
+```
+
+Append this with the names:
+
+```{r}
+verb_cosines <- bind_cols(select(verbs_10000, word), verbs_diffs)
+
+write_csv(verb_cosines, '../data/verb_cosines.csv')
+```
+
+Get values for the average "change" verb and "improve" verb difference:
+
+```{r}
+change_diff <- mean(change_cos$diff)
+improve_diff <- mean(improve_cos$diff)
+
+# Check:
+
+change_diff
+improve_diff
+```
+
+Check the average for the verbs_10000 diffs:
+
+```{r}
+mean(verbs_diffs$diffs)
+```
+
+Good, this is quite different.
+
+Plot this distribution:
+
+```{r}
+# Setup plot basics:
+
+diff_verb_p <- verbs_diffs %>% 
+  ggplot(aes(x = diffs)) +
+  geom_vline(aes(xintercept = 0), linetype = 'dashed')  +
+  geom_density(fill = 'steelblue', alpha = 0.6) +
+  geom_vline(aes(xintercept = change_diff)) + 
+  geom_vline(aes(xintercept = improve_diff), col = 'grey')
+
+# Scales and axes:
+
+diff_verb_p <- diff_verb_p +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 14),
+                     breaks = seq(0, 14, 2)) +
+  xlab('Cosine - similarity differences') +
+  ylab('Probability density')
+
+# Cosmetics:
+
+diff_verb_p <- diff_verb_p +
+  theme_classic() +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 15,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.title.x = element_text(margin = margin(t = 15, r = 0,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 10),
+        plot.title = element_text(face = 'bold'))
+
+# Show this & Save this:
+
+diff_verb_p
+ggsave(plot = diff_verb_p,
+       filename = '../figures/pdf/random_10000_verb_comparison.pdf',
+       width = 6, height = 3)
+ggsave(plot = diff_verb_p,
+       filename = '../figures/png/random_10000_verb_comparison.png',
+       width = 6, height = 3)
+ggsave(plot = diff_verb_p,
+       filename = '../figures/tiff/random_10000_verb_comparison.tiff',
+       width = 6, height = 3)
+```
+
+What percentile is the change / improve verb similarity?
+
+```{r}
+percentile <- ecdf(verbs_diffs$diffs)
+percentile(change_diff)
+percentile(improve_diff)
+```
+
+## Double plot
+
+Put both plots together:
+
+```{r}
+# First plot title and axes:
+
+diff_10000_p <- diff_10000_p +
+  ggtitle('(a) Random words') + 
+  theme(plot.title = element_text(size = 14, face = 'bold'),
+        plot.title.position = 'plot')
+
+# Second plot title and axes:
+
+diff_verb_p <- diff_verb_p +
+  ylab(NULL) + 
+  ggtitle('(b) Random verbs') +
+  theme(plot.title = element_text(size = 14, face = 'bold'),
+        plot.title.position = 'plot')
+
+# Combine:
+
+both_p <- diff_10000_p + diff_verb_p
+
+# Show and save:
+
+both_p
+ggsave(plot = both_p,
+       filename = '../figures/pdf/double_cosine_distributions.pdf',
+       width = 10, height = 4)
+ggsave(plot = both_p,
+       filename = '../figures/png/double_cosine_distributions.png',
+       width = 10, height = 4)
+ggsave(plot = both_p,
+       filename = '../figures/tiff/double_cosine_distributions.tiff',
+       width = 10, height = 4)
+```
+
