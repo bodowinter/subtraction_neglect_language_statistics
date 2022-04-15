@@ -1,6 +1,6 @@
 ---
 title: "Linking semantics with frequency and valence"
-author: "Bodo"
+author: "anonymous"
 date: "16/06/2021"
 output: html_document
 ---

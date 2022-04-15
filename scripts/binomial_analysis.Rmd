@@ -1,6 +1,6 @@
 ---
 title: "Binomial analysis analysis"
-author: "Bodo"
+author: "anonymous"
 date: "16/06/2021"
 output: html_document
 ---
@@ -113,6 +113,13 @@ pairs$annotate_freqs <- filter(binom_pairs, type == 'sub_first')$log_freq
 pairs
 ```
 
+Hand-change the values to plot for the annotate function:
+
+```{r}
+pairs[6, ]$annotate_freqs <- pairs[6, ]$annotate_freqs + 0.033
+pairs[7, ]$annotate_freqs <- pairs[7, ]$annotate_freqs - 0.033
+```
+
 Make a plot of this:
 
 ```{r}
@@ -206,26 +213,33 @@ weak_prior <- prior(normal(0, 2), class = 'b')
 Model this with a negative binomial regression model:
 
 ```{r}
-binom_mdl <- brm(bf(freq ~ 1 + type +
-                      (1 + type|pair) + (1 + type|file) + (1 + type|register),
-                    zi ~ 1),
-                 data = binoms,
-                 
-                 prior = weak_prior,
-               
-                 family = zero_inflated_negbinomial('log'),
-               
-                 # MCMC settings:
-                 
-                 seed = 666, chains = 4, cores = 4,
-                 warmup = 4000, iter = 6000,
-                 control = list(adapt_delta = 0.99))
+# binom_mdl <- brm(bf(freq ~ 1 + type +
+#                       (1 + type|pair) + (1 + type|file) + (1 + type|register),
+#                     zi ~ 1),
+#                  data = binoms,
+#                  
+#                  prior = weak_prior,
+#                
+#                  family = zero_inflated_negbinomial('log'),
+#                
+#                  # MCMC settings:
+#                  
+#                  seed = 666, chains = 4, cores = 4,
+#                  warmup = 4000, iter = 6000,
+#                  control = list(adapt_delta = 0.99))
 ```
+
+Alternatively, load the model (to save time):
+
+```{r}
+load('../models/binomial_model.RData')
+```
+
 
 Save the model:
 
 ```{r}
-save(binom_mdl, file = '../models/binomial_model.RData')
+# save(binom_mdl, file = '../models/binomial_model.RData')
 ```
 
 Check the model:

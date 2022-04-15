@@ -1,6 +1,6 @@
 ---
 title: "Distributional semantic analysis"
-author: "Bodo"
+author: "anonymous"
 date: "16/06/2021"
 output: html_document
 ---
@@ -72,7 +72,8 @@ change_df <- filter(wiki, word %in% change_words)
 Get "improve words" from Collins dictionary online, synonyms of "change" (verb), exclude phrasal verbs:
 
 ```{r}
-improve_words <- c('enhance', 'better', # 'add to' is also listed
+improve_words <- c('improve',
+                   'enhance', 'better', # 'add to' is also listed
                    'upgrade', 'amend', 'mend',
                    'augment', 'embellish', # 'touch up' is also listed
                    'ameliorate' # 'polish up' is also listed
@@ -154,6 +155,18 @@ sub_cosines <- filter(change_long, type == 'subtraction\nwords')$cosine
 sub_words <- filter(change_long, type == 'subtraction\nwords')$word
 ```
 
+Hand-change overlapping labels:
+
+```{r}
+sub_cosines[1] <- sub_cosines[1] + 0.01 # change slightly up
+sub_cosines[5] <- sub_cosines[5] + 0.01 # moderate slightly up
+sub_cosines[4] <- sub_cosines[4] - 0.005 # adjust slightly down
+sub_cosines[10] <- sub_cosines[10] + 0.01 # restyle slightly up
+sub_cosines[8] <- sub_cosines[8] - 0.015 # remodel slightly down
+sub_cosines[2] <- sub_cosines[2] - 0.0035 # reform slightly down
+sub_cosines[3] <- sub_cosines[3] + 0.0035 # transform slightly up
+```
+
 Make a plot of this:
 
 ```{r}
@@ -177,8 +190,8 @@ change_p <- change_p +
 # Add scales and axes labels:
 
 change_p <- change_p +
-  scale_y_continuous(breaks = seq(0.2, 0.5, 0.1),
-                     limits = c(0.2, 0.5)) +
+  scale_y_continuous(breaks = seq(0.2, 0.6, 0.1),
+                     limits = c(0.2, 0.6)) +
   scale_fill_manual(values = c("#E69F00", "#0072B2")) +
   coord_cartesian(xlim = c(1.3, 2.3),
                   ylim = c(0.2, 0.55)) +
@@ -227,9 +240,9 @@ The Bayesian model:
 change_mdl <- brm(diff ~ 1,
                   data = change_cos,
                   prior = weak_prior,
-                  
+
                   # MCMC settings:
-                  
+
                   seed = 42, chains = 4, cores = 4,
                   warmup = 2000, iter = 4000)
 ```
@@ -334,6 +347,16 @@ sub_cosines <- filter(improve_long, type == 'subtraction\nwords')$cosine
 sub_words <- filter(improve_long, type == 'subtraction\nwords')$word
 ```
 
+Hand-change y-axis positions of labels to prevent overlap:
+
+```{r}
+sub_cosines[9] <- sub_cosines[9] + 0.012 # ameliorate slightly up
+sub_cosines[2] <- sub_cosines[2] + 0.009 # enhance slightly up
+sub_cosines[4] <- sub_cosines[4] - 0.02 # upgrade most down
+sub_cosines[8] <- sub_cosines[8] - 0.01 # embellish slightly less down
+# sub_cosines[3] <- sub_cosines[3] - 0.01 # better slightly down
+```
+
 Make a plot of this:
 
 ```{r}
@@ -399,9 +422,9 @@ We'll use the difference scores for this one, which will amount to the equivalen
 improve_mdl <- brm(diff ~ 1,
                   data = improve_cos,
                   prior = weak_prior,
-                  
+
                   # MCMC settings:
-                  
+
                   seed = 42, chains = 4, cores = 4,
                   warmup = 2000, iter = 4000)
 ```
