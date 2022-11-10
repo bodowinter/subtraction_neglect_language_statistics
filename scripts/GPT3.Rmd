@@ -1,0 +1,811 @@
+---
+title: "GPT3 analysis for subtraction neglect"
+author: "Bodo"
+date: "01/11/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+This script contains two analyses performed using GPT. One analysis is split into two parts, one focused on valence, the other one focused on change/improve verbs.
+
+For the valence analysis, we used the test frames:
+
+The word "add" is a positive word.
+The word "add" is a negative word.
+
+... and so on, for each addition- or subtraction-related word from our list (Table 1). We then look at the log probability of the words "positive" and "negative" in this context.
+
+For the change/improve verb analysis, we used the test frames:
+
+I suggest we change this by adding.
+I suggest we change this by subtracting.
+I suggest we change this by removing.
+
+... and so on, for each verb that is a direct synonym of to change or each verb that is a direct synonym of to improve. We then look at the log probability of the adding/subtracting/removing case.
+
+
+## Setup
+
+Load packages:
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse) # for data processing
+library(brms) # for bayesian models
+library(tidybayes) # for half-eye plots
+library(effsize) # for cohen's d
+library(patchwork) # for double plots
+```
+
+Load both datasets:
+
+```{r, message = FALSE, warning = FALSE}
+# Cloze probability for change verbs:
+
+suggest <- read_csv('../data/GPT3_close_probabilities.csv')
+
+# Valence cloze probability:
+
+good_bad <- read_csv('../data/GPT3_good_bad_connotation_cloze_probability.csv')
+```
+
+Show both:
+
+```{r}
+suggest
+
+good_bad
+```
+
+## Valence analysis
+
+Can't use annotation with facets, so will have to use geoms. For this, setup a tibble with the relevant data:
+
+```{r}
+# Extract y-points to plot:
+
+bad_points <- good_bad %>% 
+  filter(type == 'subtract', context == 'bad') %>%
+  pull(valence_word_logprob)
+good_points <- good_bad %>%
+  filter(type == 'subtract', context == 'good') %>%
+  pull(valence_word_logprob)
+
+# Extract labels to plot:
+
+bad_words <- good_bad %>% 
+  filter(type == 'subtract', context == 'bad') %>%
+  pull(pair)
+good_words <- good_bad %>%
+  filter(type == 'subtract', context == 'good') %>%
+  pull(pair)
+
+# Put into tibble:
+
+text_df <- tibble(valence_word_logprob = c(bad_points, good_points),
+                  context = rep(c('bad', 'good'), each = length(bad_points)),
+                  type = rep('subtract', length(bad_points) * 2),
+                  pair = c(bad_words, good_words),
+                  x_pos = 2.1)
+```
+
+Hand-adjust overlapping values:
+
+```{r}
+# Increase/decrease up and add/subtract down in bad panel:
+
+row_id <- which(text_df$pair == 'increase/decrease' & text_df$context == 'bad')
+text_df[row_id, 'valence_word_logprob'] <- text_df[row_id, 'valence_word_logprob'] + 0.095
+
+row_id <- which(text_df$pair == 'add/subtract' & text_df$context == 'bad')
+text_df[row_id, 'valence_word_logprob'] <- text_df[row_id, 'valence_word_logprob'] - 0.055
+
+# More/less up and plus/minus down in bad panel:
+
+row_id <- which(text_df$pair == 'more/less' & text_df$context == 'bad')
+text_df[row_id, 'valence_word_logprob'] <- text_df[row_id, 'valence_word_logprob'] + 0.1
+
+row_id <- which(text_df$pair == 'plus/minus' & text_df$context == 'bad')
+text_df[row_id, 'valence_word_logprob'] <- text_df[row_id, 'valence_word_logprob'] - 0.04
+
+# Plus/minus and increase/decrease up and add/subtract down in good panel:
+
+row_id <- which(text_df$pair == 'plus/minus' & text_df$context == 'good')
+text_df[row_id, 'valence_word_logprob'] <- text_df[row_id, 'valence_word_logprob'] + 0.03
+
+row_id <- which(text_df$pair == 'increase/decrease' & text_df$context == 'good')
+text_df[row_id, 'valence_word_logprob'] <- text_df[row_id, 'valence_word_logprob'] + 0.04
+
+row_id <- which(text_df$pair == 'add/subtract' & text_df$context == 'good')
+text_df[row_id, 'valence_word_logprob'] <- text_df[row_id, 'valence_word_logprob'] - 0.08
+
+# Most/least up in good panel:
+
+row_id <- which(text_df$pair == 'most/least' & text_df$context == 'good')
+text_df[row_id, 'valence_word_logprob'] <- text_df[row_id, 'valence_word_logprob'] + 0.045
+```
+
+Make the plot:
+
+```{r}
+# Define plot and aesthetics:
+
+good_bad_p <- good_bad %>% 
+  ggplot(aes(y = valence_word_logprob, x = type, group = pair, fill = type))
+
+# Add geoms:
+
+good_bad_p <- good_bad_p +
+  geom_line(col = 'grey') +
+  geom_point(size = 3, shape = 21, alpha = 0.85) +
+  geom_text(data = text_df,
+            mapping = aes(x = x_pos,
+                          y = valence_word_logprob,
+                          label = pair),
+            hjust = 0, size = 3) +
+  facet_wrap(~context)
+
+# Add scales and axes labels:
+
+good_bad_p <- good_bad_p +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  scale_y_continuous(breaks = seq(-12, -6, 1)) +
+  coord_cartesian(xlim = c(1.3, 2.8), ylim = c(-11, -6.5),
+                  clip = 'off') +
+  xlab(NULL) +
+  ylab('Log probability (GPT3)')
+
+# Add themes:
+
+good_bad_p <- good_bad_p +
+  theme_classic() +
+  theme(legend.position = 'none') +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 15,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 10),
+        plot.margin = margin(r = 5, l = 5, b = 5, t = 5))
+
+# Show and save:
+
+good_bad_p
+ggsave(plot = good_bad_p,
+       filename = '../figures/pdf/GPT_good_bad.pdf',
+       width = 5.5, height = 3.7)
+ggsave(plot = good_bad_p,
+       filename = '../figures/png/GPT_good_bad.png',
+       width = 5.5, height = 3.7)
+ggsave(plot = good_bad_p,
+       filename = '../figures/tiff/GPT_good_bad.tiff',
+       width = 5.5, height = 3.7)
+```
+
+Descriptive averages:
+
+```{r}
+good_bad %>% 
+  group_by(context, type) %>% 
+  summarize(M = mean(valence_word_logprob)) %>% 
+  mutate(prob = exp(M))
+```
+
+
+Effect size of difference in negative, and in positive seperately:
+
+```{r}
+cohen.d(valence_word_logprob ~ type | Subject(pair),
+        data = filter(good_bad, context == 'good'), paired = TRUE)
+
+cohen.d(valence_word_logprob ~ type | Subject(pair),
+        data = filter(good_bad, context == 'bad'), paired = TRUE)
+```
+
+
+## Model valence
+
+Sum-code the `type` and `context` predictors:
+
+```{r}
+good_bad <- mutate(good_bad,
+                   context_c = factor(context, levels = c('bad', 'good')),
+                   type_c = factor(type, levels = c('add', 'subtract')))
+```
+
+We set `bad` and `add` as the reference level so that we get a negative interaction coefficient, which is easier to talk about with respect to the figure, which shows a big drop of acceptability for the subtraction-related words in the good context.
+
+Set contrasts:
+
+```{r}
+contrasts(good_bad$context_c) <- contr.sum(2)
+contrasts(good_bad$type_c) <- contr.sum(2)
+```
+
+Model the word valence:
+
+```{r eval = TRUE}
+good_bad_mdl <- brm(valence_word_logprob ~ 1 + 
+                      type_c + context_c + type_c:context_c +
+                      (1|pair),
+                    
+                    data = good_bad,
+                    family = gaussian,
+
+                    # MCMC settings:
+
+                    seed = 666, chains = 4, cores = 4,
+                    warmup = 4000, iter = 6000,
+                    control = list(adapt_delta = 0.99))
+```
+
+Save the model:
+
+```{r}
+save(good_bad_mdl, file = '../models/good_bad_mdl.RData')
+```
+
+Alternatively, load the model (to save time):
+
+```{r}
+load('../models/good_bad_mdl.RData')
+```
+
+Perform posterior predictive checks (with empirical cumulative distribution function):
+
+```{r}
+pp_check(good_bad_mdl,
+         ndraws = 100)
+```
+
+Check the model:
+
+```{r}
+good_bad_mdl
+```
+
+Perform a test of the posterior probability of the interaction effect being positive.
+
+```{r}
+hypothesis(good_bad_mdl, 'type_c1:context_c1 > 0')
+```
+
+Do this by hand by extracting posterior samples:
+
+```{r}
+good_bad_samples <- posterior_samples(good_bad_mdl) %>% 
+  rename(interaction = `b_type_c1:context_c1`)
+```
+
+Plot the posterior:
+
+```{r}
+post_p <- good_bad_samples %>% 
+  ggplot(aes(x = interaction)) +
+  stat_halfeye(fill = 'steelblue', alpha = 0.8) +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+
+post_p <- post_p +
+  xlab('Interaction coefficient') +
+  ylab('Probability density') +
+  coord_cartesian(y = c(0, 1.0), clip = 'off') +
+  scale_y_continuous(breaks = seq(0, 2, 0.5))
+
+post_p <- post_p +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(face = 'bold', size = 14,
+                                    margin = margin(t = 10)),
+        axis.title.y = element_text(face = 'bold', size = 16,
+                                    margin = margin(r = 12)))
+
+post_p
+```
+
+## Change/improve analysis
+
+First, on add versus subtract, since they were our original pair, as specified in Table 1. So let's get rid of removing. Let's also create a second version that has add versus remove. We do this — thereby deviating from our originally specified diagnostic words in Table 1 — because we expect the cloze probability of the verb "subtract" to be much lower simply because of its frequency. We know this from the word frequency result, and so to counteract this, we can use the more colloquial "remove", which is much more frequent than "subtract".
+
+```{r}
+add_subtract <- filter(suggest,
+                       cloze_verb != 'removing')
+
+add_remove <- filter(suggest,
+                       cloze_verb != 'subtracting')
+```
+
+Calculate averages:
+
+```{r}
+add_remove %>% 
+  filter(synonym_set == 'change') %>% 
+  group_by(cloze_verb) %>% 
+  summarize(M = mean(verb_logprob))
+
+add_remove %>% 
+  filter(synonym_set == 'improve') %>% 
+  group_by(cloze_verb) %>% 
+  summarize(M = mean(verb_logprob))
+```
+
+
+Calculate Cohen's d for both comparisons, separately for change and improve verbs:
+
+```{r}
+# Add versus subtract, synonym set for change, then improve:
+
+cohen.d(verb_logprob ~ cloze_verb | Subject(verb),
+        data = filter(add_subtract, synonym_set == 'change'), paired = TRUE)
+cohen.d(verb_logprob ~ cloze_verb | Subject(verb),
+        data = filter(add_subtract, synonym_set == 'improve'), paired = TRUE)
+
+# Add versus remove, synonym set for change, then improve:
+
+cohen.d(verb_logprob ~ cloze_verb | Subject(verb),
+        data = filter(add_remove, synonym_set == 'change'), paired = TRUE)
+cohen.d(verb_logprob ~ cloze_verb | Subject(verb),
+        data = filter(add_remove, synonym_set == 'improve'), paired = TRUE)
+```
+
+Get the change values to put on the y-axis:
+
+```{r}
+change_probs <- filter(add_remove,
+                       synonym_set == 'change',
+                       cloze_verb == 'adding') %>% pull(verb_prob)
+
+change_words <- filter(add_remove,
+                       synonym_set == 'change',
+                       cloze_verb == 'adding') %>% pull(verb)
+```
+
+Hand-adjust certain values (they are internally on the percentage scale):
+
+```{r}
+change_probs[4] <- change_probs[4] + 0.13 # moderate
+change_probs[6] <- change_probs[6] - 0.13 # reform
+change_probs[11] <- change_probs[11] + 0.25 # transform
+change_probs[8] <- change_probs[8] - 0.25 # reorganize
+change_probs[2] <- change_probs[2] + 0.35 # adjust
+change_probs[7] <- change_probs[7] - 0.35 # remodel
+```
+
+Make the plot:
+
+```{r}
+# Define plot and aesthetics:
+
+change_p <- filter(add_remove, synonym_set == 'change') %>% 
+  ggplot(aes(x = cloze_verb, y = verb_prob, fill = cloze_verb, group = verb))
+
+# Add geoms:
+
+change_p <- change_p +
+  geom_line(col = 'grey') +
+  geom_point(size = 3, shape = 21, alpha = 0.85) +
+  annotate(geom = 'text',
+           x = rep(0.9, length(change_probs)),
+           y = change_probs,
+           label = change_words,
+           hjust = 1,
+           col = 'grey33')
+
+# Add scales and axes labels:
+
+change_p <- change_p +
+  coord_cartesian(xlim = c(0.5, 1.85)) +
+  scale_y_continuous(breaks = seq(0, 30, 10),
+                     labels = seq(0, 0.30, 0.10),
+                     limits = c(0, 30)) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  xlab(NULL) +
+  ylab('Cloze probability')
+
+# Add themes:
+
+change_p <- change_p +
+  theme_classic() +
+  theme(legend.position = 'none') +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 15,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 10),
+        plot.title = element_text(face = 'bold'))
+
+# Show in markdown:
+
+change_p
+
+# Save:
+
+ggsave(plot = change_p,
+       filename = '../figures/pdf/GPT3_change.pdf',
+       width = 3, height = 4)
+ggsave(plot = change_p,
+       filename = '../figures/png/GPT3_change.png',
+       width = 3, height = 4)
+ggsave(plot = change_p,
+       filename = '../figures/tiff/GPT3_change.tiff',
+       width = 3, height = 4)
+```
+
+Get the improve values to put on the y-axis:
+
+```{r}
+improve_probs <- filter(add_remove,
+                        synonym_set == 'improve',
+                        cloze_verb == 'adding') %>% pull(verb_prob)
+
+improve_words <- filter(add_remove,
+                        synonym_set == 'improve',
+                        cloze_verb == 'adding') %>% pull(verb)
+```
+
+Hand-adjust certain values (they are internally on the percentage scale):
+
+```{r}
+improve_probs[9] <- improve_probs[9] + 0.5 # upgrade
+improve_probs[1] <- improve_probs[1] - 0.5 # improve
+```
+
+Make the plot:
+
+```{r}
+# Define plot and aesthetics:
+
+improve_p <- filter(add_remove, synonym_set == 'improve') %>% 
+  ggplot(aes(x = cloze_verb, y = verb_prob, fill = cloze_verb, group = verb))
+
+# Add geoms:
+
+improve_p <- improve_p +
+  geom_line(col = 'grey') +
+  geom_point(size = 3, shape = 21, alpha = 0.85) +
+  annotate(geom = 'text',
+           x = rep(0.9, length(improve_probs)),
+           y = improve_probs,
+           label = improve_words,
+           hjust = 1,
+           col = 'grey33')
+
+# Add scales and axes labels:
+
+improve_p <- improve_p +
+  coord_cartesian(xlim = c(0.5, 1.7)) +
+  scale_y_continuous(breaks = seq(0, 30, 10),
+                     labels = seq(0, 0.3, 0.10),
+                     limits = c(0, 30)) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  xlab(NULL) +
+  ylab('Cloze probability')
+
+# Add themes:
+
+improve_p <- improve_p +
+  theme_classic() +
+  theme(legend.position = 'none') +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 15,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 10),
+        plot.title = element_text(face = 'bold'))
+
+# Show in markdown:
+
+improve_p
+
+# Save:
+
+ggsave(plot = improve_p,
+       filename = '../figures/pdf/GPT3_improve.pdf',
+       width = 3, height = 4)
+ggsave(plot = improve_p,
+       filename = '../figures/png/GPT3_improve.png',
+       width = 3, height = 4)
+ggsave(plot = improve_p,
+       filename = '../figures/tiff/GPT3_improve.tiff',
+       width = 3, height = 4)
+```
+
+Add titles and get rid of second y-axis:
+
+```{r}
+change_p <- change_p +
+  ggtitle('(a) Synonyms of "to change"')
+
+improve_p <- improve_p +
+  ggtitle('(b) Synonyms of "to improve"') +
+  ylab(NULL)
+```
+
+Put both together using patchwork:
+
+```{r, fig.width = 6.5, height = 4}
+both_p <- change_p + plot_spacer() + improve_p + plot_spacer() +
+  plot_layout(widths = c(3, 0.5, 3, 1))
+
+# Show and save:
+
+both_p
+
+ggsave(plot = both_p, filename = '../figures/pdf/GPT3_change_improve_double_plot.pdf',
+       width = 7, height = 4)
+ggsave(plot = both_p, filename = '../figures/png/GPT3_change_improve_double_plot.png',
+       width = 7, height = 4)
+ggsave(plot = both_p, filename = '../figures/tiff/GPT3_change_improve_double_plot.tiff',
+       width = 7, height = 4)
+```
+
+## Change/improve Bayesian model
+
+Perform the model with remove, which is the more conservative choice here. Let's do this first in separate models, then in a model that has the interaction. Let's do Bayesian paired t-tests again so that we can avoid random effects (since we would have to fit random slopes but only have two data points per verb), that is, we first compute difference scores.
+
+```{r}
+# Get subsets:
+
+change_subset <- filter(add_remove, synonym_set == 'change')
+improve_subset <- filter(add_remove, synonym_set == 'improve')
+
+# Calculate difference scores:
+
+n_verbs <- length(unique(change_subset$verb))
+change_diffs <- change_subset[rep(c(TRUE, FALSE), times = n_verbs), ]$verb_logprob - # adding logprob
+  change_subset[rep(c(FALSE, TRUE), times = n_verbs), ]$verb_logprob # removing logprob
+
+n_verbs <- length(unique(improve_subset$verb))
+improve_diffs <- improve_subset[rep(c(TRUE, FALSE), times = n_verbs), ]$verb_logprob - # adding logprob
+  improve_subset[rep(c(FALSE, TRUE), times = n_verbs), ]$verb_logprob # removing logprob
+
+# Put them back into tables:
+
+change_diffs <- tibble(logprob_diff = change_diffs,
+                       verb = unique(change_subset$verb))
+
+improve_diffs <- tibble(logprob_diff = improve_diffs,
+                        verb = unique(improve_subset$verb))
+```
+
+Define weakly informative priors. So, these are differences scores of log probabilities. This means that we need to take the base line into account (how low or high the probabilities are overall), as well as as the difference. The probabilities are all quite low, so let's make a probability of 0.01 (= 1%) our starting point.
+
+```{r}
+log(0.01) # log value corresponding to 0.01 probability (= 1%)
+```
+
+From this log value, if we assumed a difference of log +/-1, what probabilities would this give us for 68% and 95% of the normal distribution?
+
+```{r}
+c(log(0.01) - 1, log(0.01) + 1) # logged values for 68%
+exp(c(log(0.01) - 1, log(0.01) + 1)) # probability values for 68%
+```
+
+That's perhaps a bit low. It's hard to intuit this, but in the data we've seen differences of as high as 20%, given that some of the subtract/remove cases have barely any probability at all. So let's take the prior twice as wide:
+
+```{r}
+exp(c(log(0.01) - 1.5, log(0.01) + 1.5)) # probability values for 68%
+exp(c(log(0.01) - 3, log(0.01) + 3)) # probability values for 95%
+```
+
+This seems reasonable.
+
+This would suggest that a Normal(0, 2) prior might be good and already very conservative.
+
+```{r}
+weak_prior <- c(prior('normal(0, 1.5)', class = 'Intercept'))
+```
+
+Use the difference scores in separate models for change and improve synonyms:
+
+```{r}
+change_mdl <- brm(logprob_diff ~ 1,
+                  data = change_diffs,
+                  
+                  prior = weak_prior,
+
+                  # MCMC settings:
+
+                  seed = 42, chains = 4, cores = 4,
+                  warmup = 2000, iter = 4000)
+
+improve_mdl <- brm(logprob_diff ~ 1,
+                   data = improve_diffs,
+                  
+                   prior = weak_prior,
+                   
+                   # MCMC settings:
+
+                   seed = 42, chains = 4, cores = 4,
+                   warmup = 2000, iter = 4000)
+```
+
+Posterior predictive checks:
+
+```{r}
+pp_check(change_mdl, ndraws = 100)
+
+pp_check(improve_mdl, ndraws = 100)
+```
+
+Looks good.
+
+Show models:
+
+```{r}
+change_mdl
+
+improve_mdl
+```
+
+Perform hypothesis tests:
+
+```{r}
+# For change verb cloze probabilities:
+
+hypothesis(change_mdl, 'Intercept < 0')
+hypothesis(change_mdl, 'Intercept > 0')
+
+# For improve verb cloze probabilities:
+
+hypothesis(improve_mdl, 'Intercept < 0')
+hypothesis(improve_mdl, 'Intercept > 0')
+```
+
+
+Plot posterior distributions for this. First for change verbs:
+
+```{r}
+# Plot basics:
+
+change_post_p <- posterior_samples(change_mdl) %>% 
+  ggplot(aes(x = b_Intercept)) +
+  stat_halfeye(fill = 'steelblue', alpha = 0.8) +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+
+# Axes and labels:
+
+change_post_p <- change_post_p +
+  xlab('Log probability difference\n(addition - subtraction)') +
+  ylab('Probability density') +
+  coord_cartesian(y = c(0, 1.1)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.25))
+
+# Cosmetics:
+
+change_post_p <- change_post_p +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(face = 'bold', size = 14,
+                                    margin = margin(t = 10)),
+        axis.title.y = element_text(face = 'bold', size = 16,
+                                    margin = margin(r = 12)))
+
+# Show:
+
+change_post_p
+```
+
+Then the `improve_mdl` posteriors:
+
+```{r}
+# Plot basics:
+
+improve_post_p <- posterior_samples(improve_mdl) %>% 
+  ggplot(aes(x = b_Intercept)) +
+  stat_halfeye(fill = 'steelblue', alpha = 0.8) +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+
+# Axes and labels:
+
+improve_post_p <- improve_post_p +
+  xlab('Log probability difference\n(addition - subtraction)') +
+  ylab('Probability density') +
+  coord_cartesian(y = c(0, 1.1)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.25))
+
+# Cosmetics:
+
+improve_post_p <- improve_post_p +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(face = 'bold', size = 14,
+                                    margin = margin(t = 10)),
+        axis.title.y = element_text(face = 'bold', size = 16,
+                                    margin = margin(r = 12)))
+
+# Show:
+
+improve_post_p
+```
+
+Show both posterior distributions:
+
+```{r}
+# First plot axes and title:
+
+change_post_p <- change_post_p +
+  ggtitle('(a) Change words') + 
+  theme(plot.title = element_text(size = 14, face = 'bold'),
+        plot.title.position = 'plot')
+
+# Second plot axes and title:
+
+improve_post_p <- improve_post_p +
+  ylab(NULL) + 
+  ggtitle('(b) Improve words') +
+  theme(plot.title = element_text(size = 14, face = 'bold'),
+        plot.title.position = 'plot')
+
+# Combine:
+ 
+both_p <- change_post_p + improve_post_p
+
+# Show and save:
+
+both_p
+ggsave(plot = both_p,
+       filename = '../figures/pdf/GTP3_change_improve_posteriors.pdf',
+       width = 10, height = 4)
+ggsave(plot = both_p,
+       filename = '../figures/png/GTP3_change_improve_posteriors.png',
+       width = 10, height = 4)
+ggsave(plot = both_p,
+       filename = '../figures/tiff/GTP3_change_improve_posteriors.tiff',
+       width = 10, height = 4)
+```
+
+## Combined improve/change Bayesian model
+
+In this section, we'll create a model that tests whether the effect size is bigger for improve than change verbs.
+
+Bind both difference score tables together for analysis:
+
+```{r}
+both_diffs <- bind_rows(change_diffs, improve_diffs)
+
+# Identifier for synonym set:
+
+both_diffs$type <- c(rep('change', times = nrow(change_diffs)),
+                     rep('improve', times = nrow(improve_diffs)))
+
+# Show:
+
+both_diffs
+```
+
+Make the model (we'll use flat priors on coefficients here for simplicity):
+
+```{r}
+comparison_mdl <- brm(logprob_diff ~ 1 + type,
+                      data = both_diffs,
+                   
+                      # MCMC settings:
+
+                      seed = 42, chains = 4, cores = 4,
+                      warmup = 2000, iter = 4000)
+```
+
+Posterior predictive checks:
+
+```{r}
+pp_check(comparison_mdl, ndraws = 100)
+```
+
+Show model output:
+
+```{r}
+comparison_mdl
+```
+
+Perform hypothesis test of whether improve verbs show a bigger difference between add and remove:
+
+```{r}
+hypothesis(comparison_mdl, 'typeimprove > 0')
+hypothesis(comparison_mdl, 'typeimprove < 0')
+```
+
+This completes this analysis.
+

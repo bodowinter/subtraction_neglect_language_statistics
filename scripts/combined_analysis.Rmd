@@ -332,15 +332,16 @@ post_p <- post_p +
 post_p
 ggsave(plot = post_p,
        filename = '../figures/pdf/valence_frequency_posteriors.pdf',
-       width = 6.5, height = 4)
+       width = 6.5, height = 3)
 ggsave(plot = post_p,
        filename = '../figures/png/valence_frequency_posteriors.png',
-       width = 6.5, height = 4)
+       width = 6.5, height = 3)
 ggsave(plot = post_p,
        filename = '../figures/tiff/valence_frequency_posteriors.tiff',
-       width = 6.5, height = 4)
+       width = 6.5, height = 3)
 ```
 
+This completes this analysis.
 
 
 

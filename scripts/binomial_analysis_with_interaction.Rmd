@@ -1,0 +1,340 @@
+---
+title: "Binomial analysis analysis"
+author: "anonymous"
+date: "16/06/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+Load packages:
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse) # for data processing
+library(brms) # for bayesian models
+library(effsize) # for cohen's d
+library(patchwork) # for double plots
+library(tidybayes) # for half-eye plot
+```
+
+Load data:
+
+```{r, message = FALSE, warning = FALSE}
+binoms <- read_csv('../data/binomial_all_frequencies.csv')
+```
+
+Quick glance at the structure:
+
+```{r}
+binoms
+```
+
+The pairs are:
+
+```{r}
+pairs <- tibble(pair = 1:7,
+                name = c('add and/or subtract', 'plus and/or minus',
+                         'addition and/or subtraction', 'more and/or less',
+                         'increase and/or decrease', 'many and/or few',
+                         'most and/or least'))
+```
+
+**Original:** In this analysis, we are not interested in the difference for and/or, so we'll average over that:
+
+**Update** (31/10/2022): Reviewer 2: "The assumption that the and/or distinction is irrelevant for the current purposes is likely to be true. In my opinion it would be more elegant to demonstrate this by entering this distinction into the statistical model instead of averaging prior to analysis, however." In response to this, we are now including the function word into our analysis.
+
+```{r}
+# binoms <- binoms %>% 
+#   group_by(pair, type, file, register) %>% 
+#   summarize(freq = sum(freq))
+
+binoms_and <- binoms %>%
+  filter(function_word == 'and') %>% 
+  group_by(pair, type, file, register) %>%
+  summarize(freq = sum(freq))
+
+binoms_or <- binoms %>%
+  filter(function_word == 'or') %>% 
+  group_by(pair, type, file, register) %>%
+  summarize(freq = sum(freq))
+```
+
+Show:
+
+```{r}
+binoms
+```
+
+## Descriptive analysis
+
+Calculate averages:
+
+```{r}
+binoms %>% 
+  group_by(type) %>% 
+  summarize(total = sum(freq))
+```
+
+Calculate averages per pair:
+
+```{r}
+binom_pairs <- binoms %>% 
+  group_by(pair, type) %>% 
+  summarize(total = sum(freq))
+
+# Show:
+
+binom_pairs
+
+# Update 02/11/2022, same for "and" and "or" separately:
+
+binom_pairs_and <- binoms_and %>% 
+  group_by(pair, type) %>% 
+  summarize(total = sum(freq))
+
+binom_pairs_or <- binoms_or %>% 
+  group_by(pair, type) %>% 
+  summarize(total = sum(freq))
+```
+
+Calculate log frequencies:
+
+```{r}
+binom_pairs <- mutate(binom_pairs,
+                      log_freq = log10(total + 1))
+
+# Update 02/11/2022, same for "and" and "or" separately:
+
+binom_pairs_and <- mutate(binom_pairs_and,
+                      log_freq = log10(total + 1))
+binom_pairs_or <- mutate(binom_pairs_or,
+                      log_freq = log10(total + 1))
+```
+
+Calculate ratios:
+
+```{r}
+add_first_totals <- binom_pairs[rep(c(TRUE, FALSE), 7), ]$total
+add_second_totals <- binom_pairs[rep(c(FALSE, TRUE), 7), ]$total
+
+ratios <- add_first_totals / add_second_totals
+ratios <- tibble(pair = binom_pairs[rep(c(TRUE, FALSE), 7), ]$pair,
+       ratio = ratios)
+
+left_join(pairs, ratios)
+```
+
+Calculate Cohen's d:
+
+```{r}
+cohen.d(log_freq ~ type | Subject(pair), data = binom_pairs, paired = TRUE)
+
+# Update 02/11/2022, same for "and" and "or" separately:
+
+cohen.d(log_freq ~ type | Subject(pair), data = binom_pairs_and, paired = TRUE)
+cohen.d(log_freq ~ type | Subject(pair), data = binom_pairs_or, paired = TRUE)
+```
+
+The effect is slightly stronger for "and" than for "or" binomial expressions. But importantly, it's "large" in both cases.
+
+Get the labels for annotation:
+
+```{r}
+pairs$annotate_freqs <- filter(binom_pairs, type == 'sub_first')$log_freq
+
+pairs
+```
+
+Hand-change the values to plot for the annotate function:
+
+```{r}
+pairs[6, ]$annotate_freqs <- pairs[6, ]$annotate_freqs + 0.033
+pairs[7, ]$annotate_freqs <- pairs[7, ]$annotate_freqs - 0.033
+```
+
+Make a plot of this:
+
+```{r}
+# Define plot and aesthetics:
+
+binom_p <- binom_pairs %>% 
+  mutate(type = ifelse(type == 'add_first',
+                       'addition\nfirst', 'subtraction\nfirst')) %>% 
+  ggplot(aes(x = type, y = log_freq, fill = type, group = pair))
+
+# Add geoms:
+
+binom_p <- binom_p +
+  geom_line(col = 'grey') +
+  geom_point(size = 3, shape = 21, alpha = 0.85) +
+  annotate(geom = 'text',
+           x = rep(2.1, nrow(pairs)),
+           y = pairs$annotate_freqs,
+           label = pairs$name,
+           hjust = 0,
+           col = 'grey33')
+
+# Add scales and axes labels:
+
+binom_p <- binom_p +
+  scale_y_continuous(breaks = seq(0, 4, 1)) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  coord_cartesian(xlim = c(1.3, 2.3), ylim = c(0, 4),
+                  clip = 'off') +
+  xlab(NULL) +
+  ylab('Average log10 frequency')
+
+# Add themes:
+
+binom_p <- binom_p +
+  theme_classic() +
+  theme(legend.position = 'none') +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 15,
+                                                    b = 0, l = 0),
+                                    size = 14, face = 'bold'),
+        axis.text.x = element_text(face = 'bold', size = 10),
+        plot.margin = margin(r = 75, l = 5, b = 5, t = 5))
+
+# Show and save:
+
+binom_p
+ggsave(plot = binom_p,
+       filename = '../figures/pdf/binomial_frequencies.pdf',
+       width = 4, height = 4)
+ggsave(plot = binom_p,
+       filename = '../figures/png/binomial_frequencies.png',
+       width = 4, height = 4)
+ggsave(plot = binom_p,
+       filename = '../figures/tiff/binomial_frequencies.tiff',
+       width = 4, height = 4)
+```
+
+## Bayesian model
+
+How many are zeros?
+
+```{r}
+sum(binoms$freq == 0) / nrow(binoms)
+```
+
+Look at the number of zeros as a function of add/subtract first:
+
+```{r}
+binoms %>% 
+  mutate(is_zero = freq == 0) %>%
+  group_by(type) %>% 
+  summarize(zeros = sum(is_zero)) %>% 
+  mutate(prop = zeros / sum(zeros),
+         prop = round(prop, 2))
+```
+
+Make `sub_first` the reference level:
+
+```{r}
+binoms <- mutate(binoms,
+                 type = factor(type,
+                               levels = c('sub_first', 'add_first')))
+```
+
+Weakly informative prior:
+
+```{r}
+weak_prior <- prior(normal(0, 2), class = 'b')
+```
+
+**Update** (31/10/2022): We will sum-code `type` and `function_word` so that we can interpret main effects in the presence of interactions more easily. This is because Reviewer 2 asked us to demonstrate that our results don't hinge on function word.
+
+```{r}
+binoms <- mutate(binoms,
+                 type_c = type, # copy (is already factor)
+                 function_word_c = factor(function_word, levels = c('or', 'and')))
+
+# Set contrasts:
+
+contrasts(binoms$type_c) <- contr.sum(2) * -1
+contrasts(binoms$function_word_c) <- contr.sum(2) * -1
+```
+
+Show coding systems:
+
+```{r}
+contrasts(binoms$type_c)
+contrasts(binoms$function_word_c)
+```
+
+Model this with a negative binomial regression model:
+
+```{r}
+# binom_mdl <- brm(bf(freq ~ 1 + type +
+#                       (1 + type|pair) +
+#                       (1 + type|file) +
+#                       (1 + type|register),
+#                     zi ~ 1),
+#                  data = binoms,
+# 
+#                  prior = weak_prior,
+# 
+#                  family = zero_inflated_negbinomial('log'),
+# 
+#                  # MCMC settings:
+# 
+#                  seed = 666, chains = 4, cores = 4,
+#                  warmup = 4000, iter = 6000,
+#                  control = list(adapt_delta = 0.99))
+```
+
+**Update** (31/12/2022): New model after Reviewer 2's suggestion:
+
+```{r eval = TRUE}
+binom_interaction_mdl <- brm(bf(freq ~ 1 +
+                                  type_c + function_word_c +
+                                  type_c:function_word_c +
+                                  (1 + type_c|pair) +
+                                  (1 + type_c|file) +
+                                  (1 + type_c|register),
+                                zi ~ 1),
+                             data = binoms,
+
+                             prior = weak_prior,
+
+                             family = zero_inflated_negbinomial('log'),
+
+                             # MCMC settings:
+
+                             seed = 666, chains = 4, cores = 4,
+                             warmup = 4000, iter = 6000,
+                             control = list(adapt_delta = 0.99))
+```
+
+Alternatively, load the model (to save time):
+
+```{r}
+# load('../models/binomial_model_with_interaction.RData')
+```
+
+Save the model:
+
+```{r}
+save(binom_interaction_mdl, file = '../models/binomial_model_with_interaction.RData')
+```
+
+Check the model:
+
+```{r}
+binom_interaction_mdl
+```
+
+Perform posterior predictive checks (with empirical cumulative distribution function):
+
+```{r}
+pp_check(binom_interaction_mdl,
+         ndraws = 100,
+         type = 'ecdf_overlay')
+```
+
+This completes this analysis.
+

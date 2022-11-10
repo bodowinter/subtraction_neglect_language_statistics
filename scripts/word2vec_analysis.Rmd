@@ -45,6 +45,8 @@ ELP <- read_csv('../data/ELP_with_POS_cleaned.csv')
 
 First, let's extract the word vectors of 'add', 'addition', 'subtract', and 'subtraction'. We'll store them as vectors in R.
 
+**Update** 01/11/2022: Reviewer 2 wants us to go beyond just these four words and use the words from our entire set. Therefore we add those vectors and perform those analyses as well.
+
 ```{r}
 add <- filter(wiki, word == 'add') %>%
   select(dim_1:dim_300) %>% unlist() %>% as.vector()
@@ -56,6 +58,38 @@ subtract <- filter(wiki, word == 'subtract') %>%
   select(dim_1:dim_300) %>% unlist() %>% as.vector()
 
 subtraction <- filter(wiki, word == 'subtraction') %>%
+  select(dim_1:dim_300) %>% unlist() %>% as.vector()
+
+## New words 01/11/2022:
+
+plus <- filter(wiki, word == 'plus') %>%
+  select(dim_1:dim_300) %>% unlist() %>% as.vector()
+
+minus <- filter(wiki, word == 'minus') %>%
+  select(dim_1:dim_300) %>% unlist() %>% as.vector()
+
+more <- filter(wiki, word == 'more') %>%
+  select(dim_1:dim_300) %>% unlist() %>% as.vector()
+
+less <- filter(wiki, word == 'less') %>%
+  select(dim_1:dim_300) %>% unlist() %>% as.vector()
+
+most <- filter(wiki, word == 'most') %>%
+  select(dim_1:dim_300) %>% unlist() %>% as.vector()
+
+least <- filter(wiki, word == 'least') %>%
+  select(dim_1:dim_300) %>% unlist() %>% as.vector()
+
+many <- filter(wiki, word == 'many') %>%
+  select(dim_1:dim_300) %>% unlist() %>% as.vector()
+
+few <- filter(wiki, word == 'few') %>%
+  select(dim_1:dim_300) %>% unlist() %>% as.vector()
+
+increase <- filter(wiki, word == 'increase') %>%
+  select(dim_1:dim_300) %>% unlist() %>% as.vector()
+
+decrease <- filter(wiki, word == 'decrease') %>%
   select(dim_1:dim_300) %>% unlist() %>% as.vector()
 ```
 
@@ -86,28 +120,58 @@ improve_df <- filter(wiki, word %in% improve_words)
 
 Create a tibble to store cosines for each of the change words:
 
+**Update** 01/11/2022: New diagnostic words added (full set, as requested by Reviewer 2).
+
 ```{r}
 change_cos <- tibble(word = change_words,
                      add = rep(NA_real_, length(change_words)),
-                     addition = rep(NA_real_, length(change_words)),
                      subtract = rep(NA_real_, length(change_words)),
-                     subtraction = rep(NA_real_, length(change_words)))
+                     addition = rep(NA_real_, length(change_words)),
+                     subtraction = rep(NA_real_, length(change_words)),
+                     
+                     # New words:
+                     
+                     plus = rep(NA_real_, length(change_words)),
+                     minus = rep(NA_real_, length(change_words)),
+                     more = rep(NA_real_, length(change_words)),
+                     less = rep(NA_real_, length(change_words)),
+                     most = rep(NA_real_, length(change_words)),
+                     least = rep(NA_real_, length(change_words)),
+                     many = rep(NA_real_, length(change_words)),
+                     few = rep(NA_real_, length(change_words)),
+                     increase = rep(NA_real_, length(change_words)),
+                     decrease = rep(NA_real_, length(change_words)))
 
 # Check:
 
 change_cos
 ```
 
-Fill this with the cosines. We use the fact here that change_cos has the same order as change_df
+Fill this with the cosines. We use the fact here that `change_cos` has the same order as `change_df`.
+
+**Update** 01/11/2022: New diagnostic words added (full set, as requested by Reviewer 2). Also made the column assignment absolute, not relative anymore (too risky with so many columns).
 
 ```{r}
 for (i in 1:nrow(change_cos)) {
   this_vec <- as.vector(unlist(change_df[i, -1]))
   
-  change_cos[i, 2] <- as.vector(cosine(this_vec, add)) # add cosine
-  change_cos[i, 3] <- as.vector(cosine(this_vec, addition)) # addition
-  change_cos[i, 4] <- as.vector(cosine(this_vec, subtract)) # subtract
-  change_cos[i, 5] <- as.vector(cosine(this_vec, subtraction)) # subtraction
+  change_cos[i, 'add'] <- as.vector(cosine(this_vec, add))
+  change_cos[i, 'addition'] <- as.vector(cosine(this_vec, addition))
+  change_cos[i, 'subtract'] <- as.vector(cosine(this_vec, subtract))
+  change_cos[i, 'subtraction'] <- as.vector(cosine(this_vec, subtraction))
+  
+  # New columns:
+  
+  change_cos[i, 'plus'] <- as.vector(cosine(this_vec, plus))
+  change_cos[i, 'minus'] <- as.vector(cosine(this_vec, minus))
+  change_cos[i, 'more'] <- as.vector(cosine(this_vec, more))
+  change_cos[i, 'less'] <- as.vector(cosine(this_vec, less))
+  change_cos[i, 'most'] <- as.vector(cosine(this_vec, most))
+  change_cos[i, 'least'] <- as.vector(cosine(this_vec, least))
+  change_cos[i, 'many'] <- as.vector(cosine(this_vec, many))
+  change_cos[i, 'few'] <- as.vector(cosine(this_vec, few))
+  change_cos[i, 'increase'] <- as.vector(cosine(this_vec, increase))
+  change_cos[i, 'decrease'] <- as.vector(cosine(this_vec, decrease))
 }
 ```
 
@@ -130,7 +194,24 @@ change_cos <- change_cos %>%
 change_cos
 ```
 
+**Update** 01/11/2022: New code chunk that does the same for all addition ones and all subtraction ones. In addition, since these are verbs, we'll look at all the ones that are verbal.
+
+```{r}
+change_cos <- change_cos %>% 
+  mutate(add_bias_new = (add + addition + plus + more + most + many + increase) / 7,
+         subtract_bias_new = (subtract + subtraction + minus + less + least + few + decrease) / 7,
+         diff_new = add_bias_new - subtract_bias_new,
+         
+         # Verb bias:
+         
+         verb_add = (add + increase) / 2,
+         verb_subtract = (subtract + decrease) / 2,
+         diff_verb = verb_add - verb_subtract)
+```
+
 Make this from wide format into long format for plotting and inferential statistics:
+
+**Update** 01/11/2022: New column appended.
 
 ```{r}
 change_long <- change_cos %>%
@@ -138,8 +219,40 @@ change_long <- change_cos %>%
   pivot_longer(cols = add_bias:subtract_bias,
                names_to = 'type',
                values_to = 'cosine')
+
+# Long format for new bias measure:
+
+change_long_new <- change_cos %>%
+  select(word, add_bias_new, subtract_bias_new) %>% 
+  pivot_longer(cols = add_bias_new:subtract_bias_new,
+               names_to = 'type',
+               values_to = 'cosine')
+
+# Append:
+
+change_long$cosine_new <- change_long_new$cosine
+
+# Long format for new verb bias measure:
+
+change_long_verb <- change_cos %>%
+  select(word, verb_add, verb_subtract) %>% 
+  pivot_longer(cols = verb_add:verb_subtract,
+               names_to = 'type',
+               values_to = 'cosine')
+
+change_long$cosine_verb <- change_long_verb$cosine
 ```
 
+Calculate Cohen's d for effect size reporting:
+
+```{r}
+suppressWarnings(cohen.d(cosine ~ type, data = change_long, paired = TRUE))
+
+# Verb only (reported in paper):
+
+suppressWarnings(cohen.d(cosine_verb ~ type, data = change_long, paired = TRUE))
+```
+ 
 Change the labels to something more descriptive for plotting:
 
 ```{r}
@@ -150,30 +263,47 @@ change_long <- mutate(change_long,
 
 Get the words for annotations:
 
+**Update** 01/11/2022: New verb cosines.
+
 ```{r}
-sub_cosines <- filter(change_long, type == 'subtraction\nwords')$cosine
 sub_words <- filter(change_long, type == 'subtraction\nwords')$word
+
+# Not verbs (previous):
+
+# sub_cosines <- filter(change_long, type == 'subtraction\nwords')$cosine
+
+# Verbs (01/11/2022):
+
+sub_cosines <- filter(change_long, type == 'subtraction\nwords')$cosine_verb
 ```
 
 Hand-change overlapping labels:
 
+**Update** 01/22/2022: These are the hand fixed labels for the `cosine` measure that is based on just add/addition versus subtract/subtraction, what we changed now after reviewer 2. So they are commented out here, but there's new ones for verbs.
+
 ```{r}
-sub_cosines[1] <- sub_cosines[1] + 0.01 # change slightly up
-sub_cosines[5] <- sub_cosines[5] + 0.01 # moderate slightly up
-sub_cosines[4] <- sub_cosines[4] - 0.005 # adjust slightly down
-sub_cosines[10] <- sub_cosines[10] + 0.01 # restyle slightly up
-sub_cosines[8] <- sub_cosines[8] - 0.015 # remodel slightly down
-sub_cosines[2] <- sub_cosines[2] - 0.0035 # reform slightly down
-sub_cosines[3] <- sub_cosines[3] + 0.0035 # transform slightly up
+# sub_cosines[1] <- sub_cosines[1] + 0.01 # change slightly up
+# sub_cosines[5] <- sub_cosines[5] + 0.01 # moderate slightly up
+# sub_cosines[4] <- sub_cosines[4] - 0.005 # adjust slightly down
+# sub_cosines[10] <- sub_cosines[10] + 0.01 # restyle slightly up
+# sub_cosines[8] <- sub_cosines[8] - 0.015 # remodel slightly down
+# sub_cosines[2] <- sub_cosines[2] - 0.0035 # reform slightly down
+# sub_cosines[3] <- sub_cosines[3] + 0.0035 # transform slightly up
+
+# For verbs:
+
+sub_cosines[9] <- sub_cosines[9] - 0.008 # reorganize slightly below
 ```
 
 Make a plot of this:
+
+**Update** 01/11/2022: Previous y-axis limits were [0.2, 0.6].
 
 ```{r}
 # Define plot and aesthetics:
 
 change_p <- change_long %>% 
-  ggplot(aes(x = type, y = cosine, fill = type, group = word))
+  ggplot(aes(x = type, y = cosine_verb, fill = type, group = word))
 
 # Add geoms:
 
@@ -190,11 +320,11 @@ change_p <- change_p +
 # Add scales and axes labels:
 
 change_p <- change_p +
-  scale_y_continuous(breaks = seq(0.2, 0.6, 0.1),
-                     limits = c(0.2, 0.6)) +
+  scale_y_continuous(breaks = seq(0.2, 0.7, 0.1),
+                     limits = c(0.2, 0.7)) +
   scale_fill_manual(values = c("#E69F00", "#0072B2")) +
   coord_cartesian(xlim = c(1.3, 2.3),
-                  ylim = c(0.2, 0.55)) +
+                  ylim = c(0.25, 0.7)) +
   xlab(NULL) +
   ylab('Average cosine similarity')
 
@@ -237,7 +367,7 @@ We'll use the difference scores for this one, which will amount to the equivalen
 The Bayesian model:
 
 ```{r, message = FALSE, warning = FALSE}
-change_mdl <- brm(diff ~ 1,
+change_mdl <- brm(diff_verb ~ 1, # changed to diff_verb after 01/11/2022
                   data = change_cos,
                   prior = weak_prior,
 
@@ -268,22 +398,31 @@ hypothesis(change_mdl, 'Intercept < 0')
 hypothesis(change_mdl, 'Intercept > 0')
 ```
 
-Calculate Cohen's d for effect size reporting:
-
-```{r}
-suppressWarnings(cohen.d(cosine ~ type, data = change_long, paired = TRUE))
-```
-
 ## Cosines for improve words
 
 Create a tibble to store cosines for each of the change words:
+
+**Update** 01/11/2022: New words added:
 
 ```{r}
 improve_cos <- tibble(word = improve_words,
                       add = rep(NA_real_, length(improve_words)),
                       addition = rep(NA_real_, length(improve_words)),
                       subtract = rep(NA_real_, length(improve_words)),
-                      subtraction = rep(NA_real_, length(improve_words)))
+                      subtraction = rep(NA_real_, length(improve_words)),
+                      
+                      # New words:
+                      
+                      plus = rep(NA_real_, length(improve_words)),
+                      minus = rep(NA_real_, length(improve_words)),
+                      more = rep(NA_real_, length(improve_words)),
+                      less = rep(NA_real_, length(improve_words)),
+                      most = rep(NA_real_, length(improve_words)),
+                      least = rep(NA_real_, length(improve_words)),
+                      many = rep(NA_real_, length(improve_words)),
+                      few = rep(NA_real_, length(improve_words)),
+                      increase = rep(NA_real_, length(improve_words)),
+                      decrease = rep(NA_real_, length(improve_words)))
 
 # Check:
 
@@ -296,10 +435,25 @@ Fill this with the cosines. We use the fact here that improve_cos has the same o
 for (i in 1:nrow(improve_cos)) {
   this_vec <- as.vector(unlist(improve_df[i, -1]))
   
-  improve_cos[i, 2] <- as.vector(cosine(this_vec, add)) # add cosine
-  improve_cos[i, 3] <- as.vector(cosine(this_vec, addition)) # addition
-  improve_cos[i, 4] <- as.vector(cosine(this_vec, subtract)) # subtract
-  improve_cos[i, 5] <- as.vector(cosine(this_vec, subtraction)) # subtraction
+  # Old columns:
+  
+  improve_cos[i, 'add'] <- as.vector(cosine(this_vec, add))
+  improve_cos[i, 'addition'] <- as.vector(cosine(this_vec, addition))
+  improve_cos[i, 'subtract'] <- as.vector(cosine(this_vec, subtract))
+  improve_cos[i, 'subtraction'] <- as.vector(cosine(this_vec, subtraction))
+  
+  # New columns:
+  
+  improve_cos[i, 'plus'] <- as.vector(cosine(this_vec, plus))
+  improve_cos[i, 'minus'] <- as.vector(cosine(this_vec, minus))
+  improve_cos[i, 'more'] <- as.vector(cosine(this_vec, more))
+  improve_cos[i, 'less'] <- as.vector(cosine(this_vec, less))
+  improve_cos[i, 'most'] <- as.vector(cosine(this_vec, most))
+  improve_cos[i, 'least'] <- as.vector(cosine(this_vec, least))
+  improve_cos[i, 'many'] <- as.vector(cosine(this_vec, many))
+  improve_cos[i, 'few'] <- as.vector(cosine(this_vec, few))
+  improve_cos[i, 'increase'] <- as.vector(cosine(this_vec, increase))
+  improve_cos[i, 'decrease'] <- as.vector(cosine(this_vec, decrease))
 }
 ```
 
@@ -322,7 +476,24 @@ improve_cos <- improve_cos %>%
 improve_cos
 ```
 
+**Update** 01/11/2022: New code chunk that does the same for all addition ones and all subtraction ones. In addition, since these are verbs, we'll look at all the ones that are verbal.
+
+```{r}
+improve_cos <- improve_cos %>% 
+  mutate(add_bias_new = (add + addition + plus + more + most + many + increase) / 7,
+         subtract_bias_new = (subtract + subtraction + minus + less + least + few + decrease) / 7,
+         diff_new = add_bias_new - subtract_bias_new,
+         
+         # Verb bias:
+         
+         verb_add = (add + increase) / 2,
+         verb_subtract = (subtract + decrease) / 2,
+         diff_verb = verb_add - verb_subtract)
+```
+
 Make this from wide format into long format for plotting and inferential statistics:
+
+**Update** 01/11/2022: New column appended.
 
 ```{r}
 improve_long <- improve_cos %>%
@@ -330,6 +501,38 @@ improve_long <- improve_cos %>%
   pivot_longer(cols = add_bias:subtract_bias,
                names_to = 'type',
                values_to = 'cosine')
+
+# Long format for new bias measure:
+
+improve_long_new <- improve_cos %>%
+  select(word, add_bias_new, subtract_bias_new) %>% 
+  pivot_longer(cols = add_bias_new:subtract_bias_new,
+               names_to = 'type',
+               values_to = 'cosine')
+
+# Append:
+
+improve_long$cosine_new <- improve_long_new$cosine
+
+# Long format for new verb bias measure:
+
+improve_long_verb <- improve_cos %>%
+  select(word, verb_add, verb_subtract) %>% 
+  pivot_longer(cols = verb_add:verb_subtract,
+               names_to = 'type',
+               values_to = 'cosine')
+
+improve_long$cosine_verb <- improve_long_verb$cosine
+```
+
+Calculate Cohen's d for effect size reporting:
+
+```{r}
+suppressWarnings(cohen.d(cosine ~ type, data = improve_long, paired = TRUE))
+
+# Verb for reporting:
+
+suppressWarnings(cohen.d(cosine ~ type, data = improve_long, paired = TRUE))
 ```
 
 Change the labels to something more descriptive for plotting:
@@ -342,20 +545,45 @@ improve_long <- mutate(improve_long,
 
 Get the words for annotations:
 
+**Update** 01/11/2022: New verb cosines.
+
 ```{r}
-sub_cosines <- filter(improve_long, type == 'subtraction\nwords')$cosine
 sub_words <- filter(improve_long, type == 'subtraction\nwords')$word
+
+# Not verbs (previous):
+
+# sub_cosines <- filter(improve_long, type == 'subtraction\nwords')$cosine
+
+# Verbs (01/11/2022):
+
+sub_cosines <- filter(improve_long, type == 'subtraction\nwords')$cosine_verb
 ```
 
 Hand-change y-axis positions of labels to prevent overlap:
 
+**Update** 01/22/2022: These are the hand fixed labels for the `cosine` measure that is based on just add/addition versus subtract/subtraction, what we changed now after reviewer 2. So they are commented out here, but there's new ones for verbs.
+
 ```{r}
-sub_cosines[9] <- sub_cosines[9] + 0.012 # ameliorate slightly up
-sub_cosines[2] <- sub_cosines[2] + 0.009 # enhance slightly up
-sub_cosines[4] <- sub_cosines[4] - 0.02 # upgrade most down
-sub_cosines[8] <- sub_cosines[8] - 0.01 # embellish slightly less down
-# sub_cosines[3] <- sub_cosines[3] - 0.01 # better slightly down
+# sub_cosines[9] <- sub_cosines[9] + 0.012 # ameliorate slightly up
+# sub_cosines[2] <- sub_cosines[2] + 0.009 # enhance slightly up
+# sub_cosines[4] <- sub_cosines[4] - 0.02 # upgrade most down
+# sub_cosines[8] <- sub_cosines[8] - 0.01 # embellish slightly less down
+# # sub_cosines[3] <- sub_cosines[3] - 0.01 # better slightly down
+
+# New verb adjustments:
+
+sub_cosines[6] <- sub_cosines[6] + 0.010
+sub_cosines[2] <- sub_cosines[2] - 0.009
 ```
+
+**Update** 01/11/2022: Saving y-axis breaks from previous plot, just in case. Needs to be readjusted for verb cosines.
+
+```{r}
+# ylim = c(0.15, 0.55)) +
+#   scale_y_continuous(breaks = seq(0.1, 0.6, 0.1),
+#                      limits = c(0.1, 0.6)) +
+```
+
 
 Make a plot of this:
 
@@ -363,7 +591,7 @@ Make a plot of this:
 # Define plot and aesthetics:
 
 improve_p <- improve_long %>% 
-  ggplot(aes(x = type, y = cosine, fill = type, group = word))
+  ggplot(aes(x = type, y = cosine_verb, fill = type, group = word))
 
 # Add geoms:
 
@@ -381,9 +609,9 @@ improve_p <- improve_p +
 
 improve_p <- improve_p +
   coord_cartesian(xlim = c(1.3, 2.3),
-                  ylim = c(0.15, 0.55)) +
-  scale_y_continuous(breaks = seq(0.1, 0.6, 0.1),
-                     limits = c(0.1, 0.6)) +
+                  ylim = c(0.25, 0.7)) +
+  scale_y_continuous(breaks = seq(0.2, 0.7, 0.1),
+                     limits = c(0.2, 0.7)) +
   scale_fill_manual(values = c("#E69F00", "#0072B2")) +
   xlab(NULL) +
   ylab('Average cosine similarity')
@@ -419,7 +647,7 @@ ggsave(plot = improve_p,
 We'll use the difference scores for this one, which will amount to the equivalent of a Bayesian paired t-test. We'll re-use the weakly informative priors from the change verb analysis.
 
 ```{r, message = FALSE, warning = FALSE}
-improve_mdl <- brm(diff ~ 1,
+improve_mdl <- brm(diff_verb ~ 1, # new verb addition bias
                   data = improve_cos,
                   prior = weak_prior,
 
@@ -448,12 +676,6 @@ Perform a test of the posterior probability of the effect being above/below zero
 ```{r}
 hypothesis(improve_mdl, 'Intercept < 0')
 hypothesis(improve_mdl, 'Intercept > 0')
-```
-
-Calculate Cohen's d for effect size reporting:
-
-```{r}
-suppressWarnings(cohen.d(cosine ~ type, data = improve_long, paired = TRUE))
 ```
 
 ## Double plots:
@@ -487,7 +709,7 @@ ggsave(plot = both_p, filename = '../figures/tiff/double_plot.tiff',
        width = 6.5, height = 4)
 ```
 
-Double plot of posterior distributions. First, the plot that has the posterior samples of the `change_mdl`, then the ones of the `improve_mdl`:
+Next, the double plot of posterior distributions. First, the plot that has the posterior samples of the `change_mdl`, then the ones of the `improve_mdl`:
 
 ```{r}
 # Plot basics:
@@ -607,9 +829,13 @@ Setup empty vectors to be filled with scores for each word:
 
 ```{r}
 add_res <- numeric(N)
-addition_res <- numeric(N)
+increase_res <- numeric(N) # new
+
 subtract_res <- numeric(N)
-subtraction_res <- numeric(N)
+decrease_res <- numeric(N) # new
+
+# addition_res <- numeric(N)
+# subtraction_res <- numeric(N)
 ```
 
 Loop through the wiki_10000 data frame and compute the average cosine similarities:
@@ -619,9 +845,13 @@ for (i in 1:nrow(wiki_10000)) {
   this_vec <- unlist(wiki_10000[i, 2:ncol(wiki_10000)])
   
   add_res[i] <- as.vector(cosine(this_vec, add))
-  addition_res[i] <- as.vector(cosine(this_vec, addition))
+  increase_res[i] <- as.vector(cosine(this_vec, increase)) # new
+  
   subtract_res[i] <- as.vector(cosine(this_vec, subtract))
-  subtraction_res[i] <- as.vector(cosine(this_vec, subtraction))
+  decrease_res[i] <- as.vector(cosine(this_vec, decrease)) # new
+  
+  # addition_res[i] <- as.vector(cosine(this_vec, addition))
+  # subtraction_res[i] <- as.vector(cosine(this_vec, subtraction))
   
   if (i %% 100 == 0) cat(str_c(i, '\n'))
 }
@@ -630,11 +860,14 @@ for (i in 1:nrow(wiki_10000)) {
 Compute the averages:
 
 ```{r}
-addition_sims <- (add_res + addition_res) / 2
-subtraction_sims <- (subtract_res + subtraction_res) / 2
+# addition_sims <- (add_res + addition_res) / 2
+# subtraction_sims <- (subtract_res + subtraction_res) / 2
+
+addition_sims <- (add_res + increase_res) / 2
+subtraction_sims <- (subtract_res + decrease_res) / 2
 ```
 
-Calcualte the difference scores and save in tibble:
+Calculate the difference scores and save in tibble:
 
 ```{r}
 wiki_diffs <- tibble(diffs = addition_sims - subtraction_sims)
@@ -739,9 +972,13 @@ Setup empty vectors to be filled with scores for each word:
 
 ```{r}
 add_res <- numeric(nrow(verbs_10000))
-addition_res <- numeric(nrow(verbs_10000))
+increase_res <- numeric(nrow(verbs_10000))
+
 subtract_res <- numeric(nrow(verbs_10000))
-subtraction_res <- numeric(nrow(verbs_10000))
+decrease_res <- numeric(nrow(verbs_10000))
+
+# addition_res <- numeric(nrow(verbs_10000))
+# subtraction_res <- numeric(nrow(verbs_10000))
 ```
 
 Loop through the verbs_10000 data frame and compute the average cosine similarities:
@@ -751,9 +988,13 @@ for (i in 1:nrow(verbs_10000)) {
   this_vec <- unlist(verbs_10000[i, 2:ncol(verbs_10000)])
   
   add_res[i] <- as.vector(cosine(this_vec, add))
-  addition_res[i] <- as.vector(cosine(this_vec, addition))
+  increase_res[i] <- as.vector(cosine(this_vec, increase))
+  
   subtract_res[i] <- as.vector(cosine(this_vec, subtract))
-  subtraction_res[i] <- as.vector(cosine(this_vec, subtraction))
+  decrease_res[i] <- as.vector(cosine(this_vec, decrease))
+  
+  # addition_res[i] <- as.vector(cosine(this_vec, addition))
+  # subtraction_res[i] <- as.vector(cosine(this_vec, subtraction))
   
   if (i %% 200 == 0) cat(str_c(i, '\n'))
 }
@@ -762,8 +1003,11 @@ for (i in 1:nrow(verbs_10000)) {
 Compute the averages:
 
 ```{r}
-addition_sims <- (add_res + addition_res) / 2
-subtraction_sims <- (subtract_res + subtraction_res) / 2
+# addition_sims <- (add_res + addition_res) / 2
+# subtraction_sims <- (subtract_res + subtraction_res) / 2
+
+addition_sims <- (add_res + increase_res) / 2
+subtraction_sims <- (subtract_res + decrease_res) / 2
 ```
 
 Calculate the difference scores and save in tibble:
@@ -893,3 +1137,4 @@ ggsave(plot = both_p,
        width = 10, height = 4)
 ```
 
+This completes this analysis.
