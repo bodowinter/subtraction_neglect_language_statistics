@@ -1,0 +1,29 @@
+text,context,word,pair,type,valence_word_logprob,completion_text
+"The word ""add"" has a good connotation.",good,add,add/subtract,add,-7.61,
+"The word ""add"" has a bad connotation.",bad,add,add/subtract,add,-7.51,
+"The word ""subtract"" has a good connotation.",good,subtract,add/subtract,subtract,-9.07,
+"The word ""subtract"" has a bad connotation.",bad,subtract,add/subtract,subtract,-8.14,
+"The word ""addition"" has a good connotation.",good,addition,addition/subtraction,add,-8.17,
+"The word ""addition"" has a bad connotation.",bad,addition,addition/subtraction,add,-9.72,
+"The word ""subtraction"" has a good connotation.",good,subtraction,addition/subtraction,subtract,-10.72,
+"The word ""subtraction"" has a bad connotation.",bad,subtraction,addition/subtraction,subtract,-9.76,"The word ""subtraction"" has a bad connotation because it is often associated with taking something away from something else. This can make people feel like they are losing something, which can be frustrating or upsetting."
+"The word ""plus"" has a good connotation.",good,plus,plus/minus,add,-8.27,
+"The word ""plus"" has a bad connotation.",bad,plus,plus/minus,add,-9.93,
+"The word ""minus"" has a good connotation.",good,minus,plus/minus,subtract,-9.03,"The word ""minus"" typically has a negative connotation, as it is often used to describe a negative number or a subtraction problem. However, there are some positive connotations associated with the word ""minus"" as well. For example, the word can be used to describe a smaller quantity, as in ""I have minus two apples."" In this case, the word ""minus"" has a positive connotation because it is describing a smaller quantity, which is typically seen as a good thing."
+"The word ""minus"" has a bad connotation.",bad,minus,plus/minus,subtract,-8.8,
+"The word ""more"" has a good connotation.",good,more,more/less,add,-7.47,
+"The word ""more"" has a bad connotation.",bad,more,more/less,add,-9.94,"The word ""more"" has a bad connotation because it suggests that there is something lacking."
+"The word ""less"" has a good connotation.",good,less,more/less,subtract,-7.57,"The word ""less"" typically has a positive connotation because it is associated with having less of something, which is generally seen as a good thing. For example, less stress, less work, less clutter, etc."
+"The word ""less"" has a bad connotation.",bad,less,more/less,subtract,-8.78,
+"The word ""most"" has a good connotation.",good,most,most/least,add,-7.09,
+"The word ""most"" has a bad connotation.",bad,most,most/least,add,-9.42,
+"The word ""least"" has a good connotation.",good,least,most/least,subtract,-7.45,
+"The word ""least"" has a bad connotation.",bad,least,most/least,subtract,-9.33,
+"The word ""many"" has a good connotation.",good,many,many/few,add,-7.91,
+"The word ""many"" has a bad connotation.",bad,many,many/few,add,-9.67,
+"The word ""few"" has a good connotation.",good,few,many/few,subtract,-8.21,"The word ""few"" has a positive connotation. It typically refers to a small number of things, which can be seen as a good thing.The word ""few"" has a positive connotation. It typically refers to a small number of things, which can be seen as a good thing."
+"The word ""few"" has a bad connotation.",bad,few,many/few,subtract,-9.59,
+"The word ""increase"" has a good connotation.",good,increase,increase/decrease,add,-6.86,
+"The word ""increase"" has a bad connotation.",bad,increase,increase/decrease,add,-8.99,
+"The word ""decrease"" has a good connotation.",good,decrease,increase/decrease,subtract,-8.88,
+"The word ""decrease"" has a bad connotation.",bad,decrease,increase/decrease,subtract,-8.13,
